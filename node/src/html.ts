@@ -36,7 +36,15 @@ export const vazio = new Html('');
 const TELAS: [caminho: string, nome: string][] = [
   ['/configuracao', 'Configuração'],
   ['/emitente', 'Emitente'],
+  ['/produtos', 'Produtos'],
+  ['/destinatarios', 'Destinatários'],
+  ['/nova-nota', 'Nova nota'],
+  ['/notas', 'Notas'],
+  ['/eventos', 'Eventos'],
 ];
+
+/** `R$` com duas casas. Só para a tela; os números que vão para a API são números. */
+export const dinheiro = (n: number): string => n.toFixed(2).replace('.', ',');
 
 export function pagina(titulo: string, ativa: string, corpo: Html, chamadas: Chamada[]): string {
   return html`<!doctype html>

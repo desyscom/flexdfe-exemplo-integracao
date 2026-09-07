@@ -56,6 +56,9 @@ async function cadastrar({ form, config, banco, cliente }: Contexto): Promise<Re
   try {
     const { corpo } = await cliente.criarEmitente(config.gestao, dados);
     banco.gravarEmitenteId(corpo.id);
+    // O destinatário semeado muda para o município do emitente: a primeira nota sai como venda interna.
+    // Venda interestadual a consumidor final exige o grupo do DIFAL, que este exemplo não monta.
+    banco.alinharDestinatarioSemente({ codMunicipio: dados.cod_municipio, municipio: dados.municipio, uf: dados.uf });
     return { ok: true, titulo: 'Emitente cadastrado (rascunho)', detalhe: `id ${corpo.id} guardado no banco local. Nasce inativo: o próximo passo é o certificado.`, corpo };
   } catch (erro) {
     return resultadoDeErro('Cadastro recusado', erro);

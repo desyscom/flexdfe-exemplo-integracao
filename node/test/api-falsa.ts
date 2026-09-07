@@ -4,13 +4,34 @@
 //
 // Escrita à mão a partir da Referência. Se o contrato mudar, é aqui que a divergência aparece.
 
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 
 type Cred = { clientId: string; secret: string; escopo: 'integrador' | 'emitente'; emitenteId?: string };
 
-export type Requisicao = { metodo: string; caminho: string; clientId: string | null; corpo: unknown };
+export type Requisicao = { metodo: string; caminho: string; clientId: string | null; corpo: unknown; cabecalhos: IncomingHttpHeaders };
+
+/** Um comando de emissão, do jeito que a API o representa. */
+export type Comando = {
+  id: string;
+  emitenteId: string;
+  status: string;
+  outcome: 'authorized' | 'rejected' | null;
+  modelo: 55 | 65;
+  serie: number;
+  numero: number;
+  chave: string;
+  situacao: string;
+  result: Record<string, unknown> | null;
+  documento: unknown;
+  canceladaEm: string | null;
+  criadoEm: string;
+};
+
+export type EventoFalso = { seq: number; commandId: string; type: string; status: string; outcome: 'authorized' | 'rejected' | null; criadoEm: string };
+
+type RespostaFalsa = { status: number; tipo: string; corpo: unknown; texto?: string; disposicao?: string };
 
 export class ApiFalsa {
   readonly servidor: Server;
@@ -24,6 +45,49 @@ export class ApiFalsa {
   conteudoPfxDoTitular = 'PFX-DO-TITULAR';
   enderecoBase = '';
 
+  // ---- Emissão, feed e leitura. ----
+  readonly comandos = new Map<string, Comando>();
+  /** `Idempotency-Key` → impressão do corpo e id do comando. Mesma chave, mesmo corpo: replay. */
+  readonly chaves = new Map<string, { impressao: string; id: string }>();
+  readonly feed: EventoFalso[] = [];
+  /** `sincrono`: o `wait` resolve autorizado na hora (200). `assincrono`: fica pendente (202) até `concluir`. */
+  modoEmissao: 'sincrono' | 'assincrono' = 'sincrono';
+  /** O `seq` avança de 2 em 2 de propósito: o feed real tem buracos, e o consumidor não pode contá-los. */
+  private proximoSeq = 1;
+
+  /** Publica um evento no feed. É o que a plataforma faz a cada transição. */
+  publicar(commandId: string, type: string, status: string, outcome: 'authorized' | 'rejected' | null): EventoFalso {
+    const e = { seq: this.proximoSeq, commandId, type, status, outcome, criadoEm: new Date().toISOString() };
+    this.proximoSeq += 2;
+    this.feed.push(e);
+    return e;
+  }
+
+  /** Fecha um comando pendente com o desfecho dado, e publica no feed. */
+  concluir(commandId: string, desfecho: 'authorized' | 'rejected' | 'failed' | 'blocked'): EventoFalso {
+    const c = this.comandos.get(commandId)!;
+    if (desfecho === 'authorized' || desfecho === 'rejected') {
+      c.status = 'completed';
+      c.outcome = desfecho;
+      c.situacao = desfecho === 'authorized' ? 'autorizada' : 'rejeitada';
+      c.result = desfecho === 'authorized' ? { chave: c.chave, protocolo: '135' + String(c.numero).padStart(12, '0') } : { motivo: '539 Rejeicao: Duplicidade de NF-e' };
+    } else {
+      c.status = desfecho;
+      c.outcome = null;
+      c.situacao = desfecho === 'blocked' ? 'bloqueada' : 'pendente';
+      c.result = { motivo: desfecho === 'failed' ? 'PIS_COFINS_AUSENTE em /det[1]/imposto/PIS' : 'número tomado por outra chave na SEFAZ', ...(desfecho === 'failed' ? { situacao: 'inexistente', origem: 'local' } : {}) };
+    }
+    return this.publicar(commandId, 'nfe.emit', c.status, c.outcome);
+  }
+
+  /** Cancela uma nota autorizada: a situação muda, e o feed ganha um `nfe.cancel` de OUTRO comando. */
+  cancelar(commandId: string): EventoFalso {
+    const c = this.comandos.get(commandId)!;
+    c.situacao = 'cancelada';
+    c.canceladaEm = new Date().toISOString();
+    return this.publicar(randomUUID(), 'nfe.cancel', 'completed', 'authorized');
+  }
+
   constructor() {
     this.servidor = createServer((req, res) => {
       const partes: Buffer[] = [];
@@ -31,9 +95,9 @@ export class ApiFalsa {
       req.on('end', () => {
         const texto = Buffer.concat(partes).toString('utf8');
         const corpo = texto ? JSON.parse(texto) : undefined;
-        const r = this.tratar(req.method ?? 'GET', req.url ?? '/', req.headers.authorization, corpo);
-        res.writeHead(r.status, { 'Content-Type': r.tipo });
-        res.end(r.corpo === undefined ? '' : JSON.stringify(r.corpo));
+        const r = this.tratar(req.method ?? 'GET', req.url ?? '/', req.headers, corpo);
+        res.writeHead(r.status, { 'Content-Type': r.tipo, ...(r.disposicao ? { 'Content-Disposition': r.disposicao } : {}) });
+        res.end(r.texto ?? (r.corpo === undefined ? '' : JSON.stringify(r.corpo)));
       });
     });
   }
@@ -48,9 +112,9 @@ export class ApiFalsa {
     return new Promise((ok) => this.servidor.close(() => ok()));
   }
 
-  private tratar(metodo: string, caminho: string, auth: string | undefined, corpo: unknown) {
-    const cred = this.autenticar(auth);
-    this.requisicoes.push({ metodo, caminho, clientId: cred?.clientId ?? null, corpo });
+  private tratar(metodo: string, caminho: string, cabecalhos: IncomingHttpHeaders, corpo: unknown): RespostaFalsa {
+    const cred = this.autenticar(cabecalhos.authorization);
+    this.requisicoes.push({ metodo, caminho, clientId: cred?.clientId ?? null, corpo, cabecalhos });
 
     // Envelope de autenticação: { erro }, application/json, sem type.
     if (!cred) return json(401, { erro: 'credencial inválida' });
@@ -143,6 +207,73 @@ export class ApiFalsa {
       }
     }
 
+    // ---- Emissão e acompanhamento: escopo de emitente. ----
+    if (partes[1] === 'nfe') {
+      if (cred.escopo !== 'emitente') return problema(403, 'emitente-scope-required');
+      const query = new URLSearchParams(caminho.split('?')[1] ?? '');
+
+      if (metodo === 'POST' && partes.length === 2) {
+        if (!cabecalhos['idempotency-key']) return problema(422, 'idempotency-key-required', 'informe o header Idempotency-Key');
+        const chave = String(cabecalhos['idempotency-key']);
+        const c = corpo as { modelo?: number; serie?: number; numero?: number; documento?: unknown };
+        if (![55, 65].includes(c.modelo!) || !Number.isInteger(c.serie) || typeof c.documento !== 'object') return problema(422, 'invalid-request-body', 'modelo deve ser 55 (NF-e) ou 65 (NFC-e)');
+        const impressao = canonico(corpo);
+        const vista = this.chaves.get(chave);
+        if (vista) {
+          if (vista.impressao !== impressao) return problema(422, 'idempotency-key-conflict', 'mesma Idempotency-Key com corpo diferente');
+          const replay = this.comandos.get(vista.id)!;
+          return json(ehTerminal(replay.status) ? 200 : 202, aceite(replay));
+        }
+        const serie = this.series.find((s) => s.emitenteId === cred.emitenteId && s.modelo === c.modelo && s.serie === c.serie);
+        if (!serie) return problema(404, 'series-not-provisioned', `série modelo=${c.modelo} serie=${c.serie} não provisionada`);
+        if (c.numero !== undefined) return problema(422, 'number-not-allowed-managed', 'série managed: a plataforma aloca o número; não informe numero');
+        const numero = serie.nextNumber++;
+        const emitente = this.emitentes.get(cred.emitenteId!)!;
+        const novo: Comando = {
+          id: randomUUID(),
+          emitenteId: cred.emitenteId!,
+          status: 'pending',
+          outcome: null,
+          modelo: c.modelo as 55 | 65,
+          serie: c.serie!,
+          numero,
+          chave: `43${new Date().toISOString().slice(2, 4)}09${emitente.cnpj}${c.modelo}${String(c.serie).padStart(3, '0')}${String(numero).padStart(9, '0')}1${String(numero).padStart(8, '0')}0`,
+          situacao: 'pendente',
+          result: null,
+          documento: c.documento,
+          canceladaEm: null,
+          criadoEm: new Date().toISOString(),
+        };
+        this.comandos.set(novo.id, novo);
+        this.chaves.set(chave, { impressao, id: novo.id });
+        if (this.modoEmissao === 'sincrono' && Number(query.get('wait') ?? 0) > 0) {
+          this.concluir(novo.id, 'authorized');
+          return json(200, representacao(novo));
+        }
+        return json(202, aceite(novo));
+      }
+
+      if (metodo === 'GET' && partes[2] === 'events') {
+        const since = Number(query.get('since') ?? 0);
+        const limit = Math.min(Number(query.get('limit') ?? 100), 1000);
+        const events = this.feed.filter((e) => e.seq > since).slice(0, limit);
+        return json(200, { events, nextCursor: events.length ? events[events.length - 1].seq : since });
+      }
+
+      const comando = this.comandos.get(partes[2]);
+      if (!comando || comando.emitenteId !== cred.emitenteId) return problema(404, 'command-not-found', `comando ${partes[2]} não encontrado`);
+      const sub = partes[3];
+      if (metodo === 'GET' && !sub) return json(200, { ...representacao(comando), situacao: comando.situacao, resumo: null, chave: comando.chave, protocolo: comando.result?.protocolo ?? null, recebidaEm: comando.criadoEm, autorizadaEm: null, canceladaEm: comando.canceladaEm, protocoloCancelamento: null, justificativaCancelamento: null, correcaoVigente: null });
+      if (metodo === 'GET' && sub === 'xml') {
+        if (comando.situacao !== 'autorizada') return problema(409, 'nfe-xml-unavailable', 'a nota ainda não foi autorizada; não há XML para baixar');
+        return { status: 200, tipo: 'application/xml', corpo: undefined, texto: `<nfeProc><NFe><infNFe Id="NFe${comando.chave}"/></NFe></nfeProc>`, disposicao: `attachment; filename="${comando.chave}.xml"` };
+      }
+      if (metodo === 'GET' && sub === 'danfe') {
+        if (!['autorizada', 'cancelada'].includes(comando.situacao)) return problema(409, 'nfe-danfe-unavailable', 'não há XML assinado desta nota para gerar o DANFE');
+        return { status: 200, tipo: 'application/pdf', corpo: undefined, texto: `%PDF-1.4 DANFE ${comando.chave} ${comando.situacao}`, disposicao: `inline; filename="${comando.chave}.pdf"` };
+      }
+    }
+
     return problema(404, 'not-found', `a API falsa não conhece ${metodo} ${caminho}`);
   }
 
@@ -158,4 +289,17 @@ export class ApiFalsa {
   }
 }
 
-const json = (status: number, corpo: unknown) => ({ status, tipo: 'application/json', corpo });
+const json = (status: number, corpo: unknown): RespostaFalsa => ({ status, tipo: 'application/json', corpo });
+
+const ehTerminal = (status: string): boolean => ['completed', 'failed', 'blocked'].includes(status);
+
+/** Impressão do corpo com as chaves ordenadas: reordenar chaves não muda a identidade; mudar conteúdo muda. */
+function canonico(v: unknown): string {
+  if (Array.isArray(v)) return '[' + v.map(canonico).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v as object).sort().map((k) => JSON.stringify(k) + ':' + canonico((v as Record<string, unknown>)[k])).join(',') + '}';
+  return JSON.stringify(v);
+}
+
+const aceite = (c: Comando) => ({ id: c.id, status: c.status, links: { self: `/v1/nfe/${c.id}`, events: '/v1/nfe/events?since=0' } });
+
+const representacao = (c: Comando) => ({ id: c.id, status: c.status, outcome: c.outcome, modelo: c.modelo, serie: c.serie, numero: c.numero, result: c.result, attempts: 1, retentativa: null, criadoEm: c.criadoEm, atualizadoEm: new Date().toISOString() });

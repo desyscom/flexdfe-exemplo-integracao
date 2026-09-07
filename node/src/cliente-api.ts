@@ -74,6 +74,7 @@ export type Emitente = {
   crt: 1 | 2 | 3 | 4;
   uf: string;
   municipio: string;
+  cod_municipio?: string;
   ambiente: 'homologacao' | 'producao';
   ativo: boolean;
   modelos: number[];
@@ -118,11 +119,54 @@ export type Webhook = {
   secret?: string;
 };
 
+/** Corpo do `POST /v1/nfe`: o roteamento no topo, a nota em `documento`. Em série managed não vai `numero`. */
+export type IntakeNfe = { modelo: 55 | 65; serie: number; documento: Record<string, unknown> };
+
+/** Corpo de aceite: o `202`, e o `200` de um replay já terminal. Não tem `outcome`. */
+export type AceiteComando = { id: string; status: string; links: { self: string; events: string } };
+
+/** Representação completa: o `200` de um `wait` resolvido e a base do `GET /v1/nfe/{id}`. Tem `outcome`. */
+export type RepresentacaoComando = {
+  id: string;
+  status: string;
+  outcome: 'authorized' | 'rejected' | null;
+  modelo: 55 | 65;
+  serie: number;
+  numero: number | null;
+  /** `chave`/`protocolo` na autorização; `motivo` na rejeição, na falha e no bloqueio. */
+  result: Record<string, unknown> | null;
+  attempts: number;
+  criadoEm: string;
+  atualizadoEm: string;
+};
+
+/** O `GET /v1/nfe/{id}`: a representação do comando mais a `situacao` de nível-nota, chave e marcos. */
+export type NotaDetalhe = RepresentacaoComando & {
+  situacao: string;
+  chave: string | null;
+  protocolo: string | null;
+  canceladaEm: string | null;
+};
+
+export type EventoFeed = {
+  seq: number;
+  commandId: string;
+  type: string;
+  status: string;
+  outcome: 'authorized' | 'rejected' | null;
+  criadoEm: string;
+};
+
+export type FeedResposta = { events: EventoFeed[]; nextCursor: number };
+
+/** Um arquivo baixado da API (XML ou PDF), com o nome que o `Content-Disposition` sugeriu. */
+export type Arquivo = { bytes: Buffer; contentType: string; nome: string | null };
+
 export function criarClienteApi(opcoes: Opcoes) {
   const basic = (cred: Credencial): string =>
     'Basic ' + Buffer.from(`${cred.clientId}:${cred.secret}`).toString('base64');
 
-  /** O único lugar que fala HTTP. Tudo abaixo é uma linha por rota. */
+  /** O único lugar que fala HTTP em JSON. Tudo abaixo é uma linha por rota. */
   async function chamar<T>(
     cred: Credencial,
     metodo: string,
@@ -149,6 +193,22 @@ export function criarClienteApi(opcoes: Opcoes) {
 
     if (!resposta.ok) throw new ErroApi(resposta.status, contentType, json ?? { erro: texto || `HTTP ${resposta.status}` });
     return { status: resposta.status, corpo: json as T };
+  }
+
+  /** Igual a `chamar`, mas devolve os bytes: XML e PDF não são JSON. O erro continua vindo em JSON. */
+  async function baixar(cred: Credencial, caminho: string, aceitar: string): Promise<Arquivo> {
+    const inicio = Date.now();
+    const resposta = await fetch(opcoes.enderecoBase + caminho, {
+      headers: { Authorization: basic(cred), Accept: `${aceitar}, application/problem+json` },
+    });
+    opcoes.aoChamar?.({ metodo: 'GET', caminho, status: resposta.status, ms: Date.now() - inicio });
+    const contentType = resposta.headers.get('content-type') ?? '';
+    if (!resposta.ok) {
+      const texto = await resposta.text();
+      throw new ErroApi(resposta.status, contentType, contentType.includes('json') && texto ? JSON.parse(texto) : { erro: texto });
+    }
+    const nome = /filename="?([^";]+)"?/.exec(resposta.headers.get('content-disposition') ?? '')?.[1] ?? null;
+    return { bytes: Buffer.from(await resposta.arrayBuffer()), contentType, nome };
   }
 
   return {
@@ -185,6 +245,28 @@ export function criarClienteApi(opcoes: Opcoes) {
       chamar<Serie>(cred, 'POST', '/v1/series', { modelo, serie, mode: 'managed' }),
 
     listarSeries: (cred: Credencial) => chamar<{ series: Serie[] }>(cred, 'GET', '/v1/series'),
+
+    /**
+     * Enfileira a emissão. `Idempotency-Key` é obrigatória: gere UMA por intenção de emissão e grave-a antes
+     * de chamar; reenviar com a mesma chave e o mesmo corpo é replay (mesmo `id`), nunca uma segunda nota.
+     * `wait` é a janela síncrona em ms (teto 15000): desfecho dentro dela vem como `200` com a representação
+     * completa; fora dela, `202` com o aceite. Distinga pela presença de `outcome`, não pelo status.
+     */
+    emitirNfe: (cred: Credencial, corpo: IntakeNfe, idempotencyKey: string, waitMs: number) =>
+      chamar<RepresentacaoComando | AceiteComando>(cred, 'POST', `/v1/nfe?wait=${waitMs}`, corpo, { 'Idempotency-Key': idempotencyKey }),
+
+    /** A nota enriquecida: `situacao`, chave, protocolo, marcos. É a leitura que fecha o que o feed anunciou. */
+    lerNota: (cred: Credencial, id: string) => chamar<NotaDetalhe>(cred, 'GET', `/v1/nfe/${id}`),
+
+    /** O feed: a fonte de verdade dos desfechos. `since` é exclusivo; avance sempre pelo `nextCursor`. */
+    lerFeed: (cred: Credencial, since: number, limit = 100) =>
+      chamar<FeedResposta>(cred, 'GET', `/v1/nfe/events?since=${since}&limit=${limit}`),
+
+    /** Só existe na nota AUTORIZADA; antes disso é `409 nfe-xml-unavailable`. */
+    baixarXml: (cred: Credencial, id: string) => baixar(cred, `/v1/nfe/${id}/xml`, 'application/xml'),
+
+    /** Sempre que há XML assinado: autorizada e cancelada (com tarja). Fora disso, `409 nfe-danfe-unavailable`. */
+    baixarDanfe: (cred: Credencial, id: string) => baixar(cred, `/v1/nfe/${id}/danfe`, 'application/pdf'),
 
     // ---- Webhook: aceita os dois escopos. ----
 

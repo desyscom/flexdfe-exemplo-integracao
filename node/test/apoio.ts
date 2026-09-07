@@ -68,6 +68,26 @@ export async function subir(opcoes: { senha?: string; conteudoPfx?: string } = {
   };
 }
 
+/** Percorre a tela Emitente inteira: cadastro, certificado, ativação, credencial, séries 55 e 65, webhook. */
+export async function ateSeries(c: Cenario, emitente: Record<string, string> = EMITENTE_VALIDO): Promise<string> {
+  const cadastro = await c.post('/emitente/cadastrar', emitente);
+  if (!/Emitente cadastrado/.test(cadastro.html)) throw new Error('cadastro falhou: ' + cadastro.texto.slice(0, 500));
+  await c.post('/emitente/certificado');
+  await c.post('/emitente/ativar');
+  await c.post('/emitente/credencial');
+  await c.post('/emitente/serie', { modelo: '55', serie: '1' });
+  await c.post('/emitente/serie', { modelo: '65', serie: '1' });
+  await c.post('/emitente/webhook', { url: 'https://tunel.exemplo.com/webhook' });
+  return c.banco.configuracao().emitenteId!;
+}
+
+/** Um pedido de NF-e 55 com o destinatário semeado, um item, pagamento fechado. */
+export function pedido55(c: Cenario, extra: Record<string, string> = {}): Record<string, string> {
+  const destinatario = c.banco.listarDestinatarios()[0];
+  const produto = c.banco.listarProdutos()[0]; // P001, 2,50
+  return { modelo: '55', serie: '1', destinatario: String(destinatario.id), [`qtd_${produto.id}`]: '2', tpag_1: '01', vpag_1: '5,00', ...extra };
+}
+
 export const EMITENTE_VALIDO = {
   cnpj: '12.345.678/0001-95',
   razao_social: 'Loja Exemplo Ltda',
