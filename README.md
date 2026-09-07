@@ -8,13 +8,13 @@ Uma aplicação mínima, para rodar na sua máquina, que percorre o ciclo inteir
 
 | Pasta | Linguagem | Estado |
 |---|---|---|
-| [`node/`](node/) | TypeScript em Node, sem framework, sem dependência nativa | primeira implementação |
+| [`node/`](node/) | TypeScript em Node, sem framework, sem dependência nativa | completa: testada contra a API na tag `v0.1.0` |
 
-Outras linguagens entram ao lado, cada uma na sua pasta, sem mover a primeira.
+Outras linguagens entram ao lado, cada uma na sua pasta, sem mover a primeira. Cada implementação declara no próprio README a tag da API contra a qual foi testada.
 
 ## Antes de começar
 
-Você precisa de uma conta no Flex DFe com um **Credencial de gestão** e de um certificado A1 (`.pfx`) do CNPJ que vai emitir. O [tutorial de primeiros passos](https://flexdfe.com.br/tutorial) mostra como chegar até a credencial. A [Referência da API](https://flexdfe.com.br/docs) descreve cada rota que o exemplo consome.
+Você precisa de uma conta no Flex DFe com uma **credencial de gestão** e de um certificado A1 (`.pfx`) do CNPJ que vai emitir. O [tutorial de primeiros passos](https://flexdfe.com.br/tutorial) mostra como chegar até a credencial. A [Referência da API](https://flexdfe.com.br/docs) descreve cada rota que o exemplo consome.
 
 O exemplo roda **em homologação**. Promover um emitente a produção é ato do cliente, no painel.
 

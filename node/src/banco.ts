@@ -11,6 +11,8 @@
 //   nota           uma linha por emissão: a Idempotency-Key e o corpo enviado ficam gravados ANTES
 //                  da chamada; o desfecho chega pelo feed ou pelo webhook
 //   evento         o histórico bruto do que o feed e o webhook entregaram, com a origem de cada um
+//   operacao       consulta, cancelamento, carta e inutilização: uma linha por comando disparado, com o id
+//                  que a API devolveu e a situação, fechada pelo feed como a emissão
 
 import { DatabaseSync } from 'node:sqlite';
 import type { Credencial } from './config.ts';
@@ -84,6 +86,33 @@ export type Nota = {
   corpoEnviado: string;
   /** O último corpo que a API devolveu sobre esta nota, tal como veio. */
   ultimoResultado: string | null;
+  /** A nota local que FALHOU e da qual esta é a reemissão com chave nova. */
+  reemitidaDe: number | null;
+  criadoEm: string;
+};
+
+export type TipoOperacao = 'consulta' | 'cancelamento' | 'carta' | 'inutilizacao';
+
+/**
+ * Uma operação disparada sobre a API: consulta, cancelamento e carta são sobre uma nota; a inutilização é
+ * sobre uma faixa, sem nota. O `commandId` é do comando NOVO que a API devolveu no aceite, e é por ele que
+ * o feed (`nfe.cancel`, `nfe.cce`, `nfe.inutiliza`) fecha a operação. A consulta não tem evento: é fechada
+ * pela releitura da nota.
+ */
+export type Operacao = {
+  id: number;
+  notaId: number | null;
+  tipo: TipoOperacao;
+  commandId: string | null;
+  /** A consulta não exige chave; as outras três, sim, e ela é gravada ANTES da chamada. */
+  idempotencyKey: string | null;
+  corpoEnviado: string | null;
+  status: string | null;
+  outcome: string | null;
+  /** A situação própria da operação: `registrada`/`rejeitada`/`falha` da tentativa, ou `concluída` na consulta. */
+  situacao: string | null;
+  confirmadoPor: string | null;
+  ultimoResultado: string | null;
   criadoEm: string;
 };
 
@@ -156,6 +185,22 @@ export class Banco {
         confirmado_por TEXT,
         idempotency_key TEXT NOT NULL UNIQUE,
         corpo_enviado TEXT NOT NULL,
+        ultimo_resultado TEXT,
+        reemitida_de INTEGER REFERENCES nota (id),
+        criado_em TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS operacao (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nota_id INTEGER REFERENCES nota (id),
+        tipo TEXT NOT NULL,
+        command_id TEXT UNIQUE,
+        idempotency_key TEXT UNIQUE,
+        corpo_enviado TEXT,
+        status TEXT,
+        outcome TEXT,
+        situacao TEXT,
+        confirmado_por TEXT,
         ultimo_resultado TEXT,
         criado_em TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       );
@@ -309,10 +354,10 @@ export class Banco {
   }
 
   /** A nota nasce aqui, ANTES do `POST /v1/nfe`: com a chave e o corpo, sem `command_id`. */
-  criarNotaPendente(n: { modelo: 55 | 65; serie: number; idempotencyKey: string; corpoEnviado: string }): number {
+  criarNotaPendente(n: { modelo: 55 | 65; serie: number; idempotencyKey: string; corpoEnviado: string; reemitidaDe?: number }): number {
     const r = this.db
-      .prepare('INSERT INTO nota (modelo, serie, idempotency_key, corpo_enviado) VALUES (?, ?, ?, ?)')
-      .run(n.modelo, n.serie, n.idempotencyKey, n.corpoEnviado);
+      .prepare('INSERT INTO nota (modelo, serie, idempotency_key, corpo_enviado, reemitida_de) VALUES (?, ?, ?, ?, ?)')
+      .run(n.modelo, n.serie, n.idempotencyKey, n.corpoEnviado, n.reemitidaDe ?? null);
     return Number(r.lastInsertRowid);
   }
 
@@ -346,6 +391,52 @@ export class Banco {
          WHERE id = ?`,
       )
       .run(d.status, d.outcome, d.numero ?? null, d.chave ?? null, d.protocolo ?? null, d.situacao ?? null, d.confirmadoPor ?? null, d.ultimoResultado ?? null, id);
+  }
+
+  // ---------------------------------------------------------------- operacao
+
+  listarOperacoes(notaId?: number): Operacao[] {
+    const linhas = notaId === undefined
+      ? this.db.prepare('SELECT * FROM operacao ORDER BY id DESC').all()
+      : this.db.prepare('SELECT * FROM operacao WHERE nota_id = ? ORDER BY id DESC').all(notaId);
+    return (linhas as Record<string, unknown>[]).map(operacaoDaLinha);
+  }
+
+  lerOperacao(id: number): Operacao | null {
+    const l = this.db.prepare('SELECT * FROM operacao WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return l ? operacaoDaLinha(l) : null;
+  }
+
+  /** É por aqui que o feed encontra a operação: pelo id do comando novo que o aceite devolveu. */
+  lerOperacaoPorComando(commandId: string): Operacao | null {
+    const l = this.db.prepare('SELECT * FROM operacao WHERE command_id = ?').get(commandId) as Record<string, unknown> | undefined;
+    return l ? operacaoDaLinha(l) : null;
+  }
+
+  /** A operação nasce ANTES da chamada, com a chave e o corpo, como a nota. */
+  criarOperacao(o: { notaId: number | null; tipo: TipoOperacao; idempotencyKey: string | null; corpoEnviado: string | null }): number {
+    const r = this.db
+      .prepare('INSERT INTO operacao (nota_id, tipo, idempotency_key, corpo_enviado) VALUES (?, ?, ?, ?)')
+      .run(o.notaId, o.tipo, o.idempotencyKey, o.corpoEnviado);
+    return Number(r.lastInsertRowid);
+  }
+
+  /** O que o aceite (`202`) grava: o id do comando novo e o status inicial. */
+  gravarAceiteOperacao(id: number, commandId: string, status: string, ultimoResultado: string): void {
+    this.db.prepare('UPDATE operacao SET command_id = ?, status = ?, ultimo_resultado = ? WHERE id = ?').run(commandId, status, ultimoResultado, id);
+  }
+
+  gravarDesfechoOperacao(
+    id: number,
+    d: { status?: string | null; outcome?: string | null; situacao?: string | null; confirmadoPor?: string | null; ultimoResultado?: string | null },
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE operacao SET status = COALESCE(?, status), outcome = COALESCE(?, outcome), situacao = COALESCE(?, situacao),
+           confirmado_por = COALESCE(?, confirmado_por), ultimo_resultado = COALESCE(?, ultimo_resultado)
+         WHERE id = ?`,
+      )
+      .run(d.status ?? null, d.outcome ?? null, d.situacao ?? null, d.confirmadoPor ?? null, d.ultimoResultado ?? null, id);
   }
 
   // ---------------------------------------------------------------- evento
@@ -413,6 +504,22 @@ const notaDaLinha = (l: Record<string, unknown>): Nota => ({
   confirmadoPor: (l.confirmado_por as string | null) ?? null,
   idempotencyKey: String(l.idempotency_key),
   corpoEnviado: String(l.corpo_enviado),
+  ultimoResultado: (l.ultimo_resultado as string | null) ?? null,
+  reemitidaDe: l.reemitida_de == null ? null : Number(l.reemitida_de),
+  criadoEm: String(l.criado_em),
+});
+
+const operacaoDaLinha = (l: Record<string, unknown>): Operacao => ({
+  id: Number(l.id),
+  notaId: l.nota_id == null ? null : Number(l.nota_id),
+  tipo: l.tipo as TipoOperacao,
+  commandId: (l.command_id as string | null) ?? null,
+  idempotencyKey: (l.idempotency_key as string | null) ?? null,
+  corpoEnviado: (l.corpo_enviado as string | null) ?? null,
+  status: (l.status as string | null) ?? null,
+  outcome: (l.outcome as string | null) ?? null,
+  situacao: (l.situacao as string | null) ?? null,
+  confirmadoPor: (l.confirmado_por as string | null) ?? null,
   ultimoResultado: (l.ultimo_resultado as string | null) ?? null,
   criadoEm: String(l.criado_em),
 });

@@ -94,14 +94,14 @@ test('tipo desconhecido é gravado e ignorado; tipo conhecido de outro comando t
     assert.equal(c.banco.lerNota(nota.id)!.situacao, 'autorizada');
 
     const desconhecido = c.api.publicar(nota.commandId!, 'nfe.novidade', 'completed', 'authorized');
-    const cancel = c.api.cancelar(nota.commandId!);
+    const cancel = c.api.publicar(nota.commandId!, 'nfe.cancel', 'completed', 'authorized'); // um cancelamento que NÃO passou por esta aplicação
     const feed = await c.post('/eventos/puxar');
     assert.match(feed.html, /Feed lido: 2 evento/);
     const eventos = c.banco.listarEventos();
     assert.equal(eventos.find((e) => e.seq === desconhecido.seq)!.efeito, 'ignorado: tipo nfe.novidade não é tratado por esta tela');
-    assert.match(eventos.find((e) => e.seq === cancel.seq)!.efeito, /ignorado: comando não é de uma nota deste banco local|ignorado: tipo nfe.cancel/);
+    assert.equal(eventos.find((e) => e.seq === cancel.seq)!.efeito, 'ignorado: comando não é de uma operação deste banco local');
     assert.equal(c.banco.configuracao().cursorFeed, cancel.seq, 'o cursor passou pelos ignorados');
-    // A nota local segue autorizada: o cancelamento é assunto da fatia seguinte, que liga o nfe.cancel à nota.
+    // A nota local segue autorizada: o nfe.cancel cita o comando do cancelamento, não a nota, e este não é nosso.
     assert.equal(c.banco.lerNota(nota.id)!.situacao, 'autorizada', 'os eventos ignorados não mexeram na nota');
   } finally {
     await c.encerrar();

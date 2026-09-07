@@ -14,7 +14,8 @@ import { acoesEmitente, telaEmitente } from './telas/emitente.ts';
 import { acoesProdutos, telaProdutos } from './telas/produtos.ts';
 import { acoesDestinatarios, telaDestinatarios } from './telas/destinatarios.ts';
 import { acoesNovaNota, telaNovaNota } from './telas/nova-nota.ts';
-import { acoesNotas, leiturasNotas, telaNotas } from './telas/notas.ts';
+import { acoesNotas, leiturasNotas, telaNota, telaNotas } from './telas/notas.ts';
+import { acoesInutilizacao, telaInutilizacao } from './telas/inutilizacao.ts';
 import { acoesEventos, telaEventos } from './telas/eventos.ts';
 import { receptorWebhook } from './telas/webhook.ts';
 
@@ -53,8 +54,11 @@ export function criarApp(deps: Deps): Server {
     ['GET /nova-nota', telaNovaNota],
     ...acoes('/nova-nota', acoesNovaNota),
     ['GET /notas', telaNotas],
+    ['GET /notas/:id', telaNota],
     ...Object.entries(leiturasNotas).map(([nome, rota]): [string, Rota] => [`GET /notas/:id/${nome}`, rota]),
     ...Object.entries(acoesNotas).map(([nome, rota]): [string, Rota] => [`POST /notas/:id/${nome}`, rota]),
+    ['GET /inutilizacao', telaInutilizacao],
+    ...acoes('/inutilizacao', acoesInutilizacao),
     ['GET /eventos', telaEventos],
     ...acoes('/eventos', acoesEventos),
     ['POST /webhook', receptorWebhook],

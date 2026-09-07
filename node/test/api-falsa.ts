@@ -1,6 +1,7 @@
 // Uma API do Flex DFe de mentira, em processo, para os testes dirigirem a tela sem credencial
 // nem SEFAZ. Responde os contratos do OpenAPI publicado (tag v0.1.0) só no que este exemplo
-// consome: os dois envelopes de erro, os escopos, o secret que aparece uma vez.
+// consome: os dois envelopes de erro, os escopos, o secret que aparece uma vez, as operações
+// sobre a nota emitida e o 429 da borda.
 //
 // Escrita à mão a partir da Referência. Se o contrato mudar, é aqui que a divergência aparece.
 
@@ -26,12 +27,37 @@ export type Comando = {
   result: Record<string, unknown> | null;
   documento: unknown;
   canceladaEm: string | null;
+  protocoloCancelamento: string | null;
+  justificativaCancelamento: string | null;
+  /** O que a SEFAZ sabe e a plataforma ainda não: um cancelamento feito por fora. A consulta traz para `situacao`. */
+  verdadeSefaz: string | null;
   criadoEm: string;
+};
+
+/** Um comando de ciclo de vida (`nfe.cancel`, `nfe.cce`, `nfe.inutiliza`), do jeito que a API o representa. */
+export type OperacaoFalsa = {
+  id: string;
+  tipo: 'nfe.cancel' | 'nfe.cce' | 'nfe.inutiliza';
+  emitenteId: string;
+  /** O comando da nota, quando a operação é sobre uma nota. */
+  notaId: string | null;
+  status: string;
+  outcome: 'authorized' | 'rejected' | null;
+  /** A situação própria: da tentativa de cancelamento ou da carta. */
+  situacao: string;
+  corpo: Record<string, unknown>;
+  protocolo: string | null;
+  motivo: string | null;
+  nSeq: number | null;
+  criadaEm: string;
+  concluidaEm: string | null;
 };
 
 export type EventoFalso = { seq: number; commandId: string; type: string; status: string; outcome: 'authorized' | 'rejected' | null; criadoEm: string };
 
-type RespostaFalsa = { status: number; tipo: string; corpo: unknown; texto?: string; disposicao?: string };
+type RespostaFalsa = { status: number; tipo: string; corpo: unknown; texto?: string; disposicao?: string; cabecalhos?: Record<string, string> };
+
+const PATTERN_TEXTO_SEFAZ = /^(?:[!-ÿ][ -ÿ]*[!-ÿ]|[!-ÿ])$/;
 
 export class ApiFalsa {
   readonly servidor: Server;
@@ -55,6 +81,15 @@ export class ApiFalsa {
   /** O `seq` avança de 2 em 2 de propósito: o feed real tem buracos, e o consumidor não pode contá-los. */
   private proximoSeq = 1;
 
+  // ---- Operações sobre a nota emitida. ----
+  readonly operacoes = new Map<string, OperacaoFalsa>();
+  /** `sincrono`: cancelamento, carta e inutilização concluem na hora. `assincrono`: ficam pendentes até `concluirOperacao`. */
+  modoOperacoes: 'sincrono' | 'assincrono' = 'sincrono';
+
+  // ---- A borda. ----
+  /** Enquanto `vezes` > 0, a requisição (que case com `caminho`, se dado) volta 429 com `Retry-After` e desconta uma. É a borda limitando taxa. */
+  limitar: { vezes: number; retryAfter: string | null; caminho?: RegExp } = { vezes: 0, retryAfter: '0' };
+
   /** Publica um evento no feed. É o que a plataforma faz a cada transição. */
   publicar(commandId: string, type: string, status: string, outcome: 'authorized' | 'rejected' | null): EventoFalso {
     const e = { seq: this.proximoSeq, commandId, type, status, outcome, criadoEm: new Date().toISOString() };
@@ -75,17 +110,48 @@ export class ApiFalsa {
       c.status = desfecho;
       c.outcome = null;
       c.situacao = desfecho === 'blocked' ? 'bloqueada' : 'pendente';
-      c.result = { motivo: desfecho === 'failed' ? 'PIS_COFINS_AUSENTE em /det[1]/imposto/PIS' : 'número tomado por outra chave na SEFAZ', ...(desfecho === 'failed' ? { situacao: 'inexistente', origem: 'local' } : {}) };
+      // O motivo de uma recusa antecipada traz o caminho do campo: a plataforma validou antes da SEFAZ.
+      c.result = { motivo: desfecho === 'failed' ? 'PIS_COFINS_AUSENTE em /det[1]/imposto/PIS' : 'número tomado por outra chave na SEFAZ', ...(desfecho === 'failed' ? { situacao: 'inexistente', origem: 'local', classe: 'permanent' } : {}) };
     }
     return this.publicar(commandId, 'nfe.emit', c.status, c.outcome);
   }
 
-  /** Cancela uma nota autorizada: a situação muda, e o feed ganha um `nfe.cancel` de OUTRO comando. */
-  cancelar(commandId: string): EventoFalso {
-    const c = this.comandos.get(commandId)!;
-    c.situacao = 'cancelada';
-    c.canceladaEm = new Date().toISOString();
-    return this.publicar(randomUUID(), 'nfe.cancel', 'completed', 'authorized');
+  /**
+   * Cancela a nota POR FORA da plataforma (outro sistema, o portal da SEFAZ). A plataforma não fica sabendo:
+   * `GET /v1/nfe/{id}` segue dizendo `autorizada` até uma consulta reconciliar. Sem evento no feed.
+   */
+  cancelarPorFora(commandId: string): void {
+    this.comandos.get(commandId)!.verdadeSefaz = 'cancelada';
+  }
+
+  /** Fecha uma operação pendente com o desfecho dado, aplica o efeito na nota e publica no feed. */
+  concluirOperacao(operacaoId: string, desfecho: 'authorized' | 'rejected' | 'failed'): EventoFalso {
+    const o = this.operacoes.get(operacaoId)!;
+    const nota = o.notaId ? this.comandos.get(o.notaId)! : null;
+    o.concluidaEm = new Date().toISOString();
+    if (desfecho === 'failed') {
+      o.status = 'failed';
+      o.outcome = null;
+      o.situacao = 'falha';
+      o.motivo = 'falha definitiva no processamento';
+    } else {
+      o.status = 'completed';
+      o.outcome = desfecho;
+      if (desfecho === 'authorized') {
+        o.situacao = 'registrada';
+        o.protocolo = '135' + String(this.operacoes.size).padStart(12, '0');
+        if (o.tipo === 'nfe.cancel' && nota) {
+          nota.situacao = 'cancelada';
+          nota.canceladaEm = o.concluidaEm;
+          nota.protocoloCancelamento = o.protocolo;
+          nota.justificativaCancelamento = String(o.corpo.justificativa);
+        }
+      } else {
+        o.situacao = 'rejeitada';
+        o.motivo = o.tipo === 'nfe.inutiliza' ? '563 Rejeicao: Numero inicial da faixa maior que o final' : o.tipo === 'nfe.cancel' ? '501 Rejeicao: Prazo de cancelamento superior ao previsto na Legislacao' : '594 Rejeicao: O numero do evento nao e compativel';
+      }
+    }
+    return this.publicar(o.id, o.tipo, o.status, o.outcome);
   }
 
   constructor() {
@@ -96,7 +162,7 @@ export class ApiFalsa {
         const texto = Buffer.concat(partes).toString('utf8');
         const corpo = texto ? JSON.parse(texto) : undefined;
         const r = this.tratar(req.method ?? 'GET', req.url ?? '/', req.headers, corpo);
-        res.writeHead(r.status, { 'Content-Type': r.tipo, ...(r.disposicao ? { 'Content-Disposition': r.disposicao } : {}) });
+        res.writeHead(r.status, { 'Content-Type': r.tipo, ...(r.disposicao ? { 'Content-Disposition': r.disposicao } : {}), ...(r.cabecalhos ?? {}) });
         res.end(r.texto ?? (r.corpo === undefined ? '' : JSON.stringify(r.corpo)));
       });
     });
@@ -116,13 +182,22 @@ export class ApiFalsa {
     const cred = this.autenticar(cabecalhos.authorization);
     this.requisicoes.push({ metodo, caminho, clientId: cred?.clientId ?? null, corpo, cabecalhos });
 
+    // A borda vem antes de tudo: 429 sem envelope, com Retry-After, antes mesmo de autenticar.
+    if (this.limitar.vezes > 0 && (!this.limitar.caminho || this.limitar.caminho.test(caminho))) {
+      this.limitar.vezes--;
+      return { status: 429, tipo: 'text/plain', corpo: undefined, texto: 'Too Many Requests', cabecalhos: this.limitar.retryAfter === null ? {} : { 'Retry-After': this.limitar.retryAfter } };
+    }
+
     // Envelope de autenticação: { erro }, application/json, sem type.
     if (!cred) return json(401, { erro: 'credencial inválida' });
 
+    // O `title` é humano e muda sem aviso. Aqui ele muda a CADA resposta, de propósito: um cliente que
+    // ramificasse por ele quebraria no teste, antes de quebrar em produção.
     const problema = (status: number, type: string, detail?: string) =>
-      ({ status, tipo: 'application/problem+json', corpo: { type, title: type, status, detail, instance: caminho } });
+      ({ status, tipo: 'application/problem+json', corpo: { type, title: `Título humano ${randomUUID().slice(0, 8)}`, status, detail, instance: caminho } });
 
     const partes = caminho.split('?')[0].split('/').filter(Boolean); // ['v1','emitentes',id,...]
+    const query = new URLSearchParams(caminho.split('?')[1] ?? '');
 
     if (metodo === 'GET' && caminho === '/v1/contexto') {
       if (cred.escopo === 'integrador')
@@ -207,23 +282,37 @@ export class ApiFalsa {
       }
     }
 
+    // ---- Inutilização: sobre a faixa, escopo de emitente, mesmo molde da emissão. ----
+    if (metodo === 'POST' && partes[1] === 'inutilizacoes' && partes.length === 2) {
+      if (cred.escopo !== 'emitente') return problema(403, 'emitente-scope-required');
+      const chave = cabecalhos['idempotency-key'];
+      if (!chave) return problema(422, 'idempotency-key-required', 'informe o header Idempotency-Key');
+      const c = corpo as Record<string, unknown>;
+      // Só a FORMA. `nNFIni ≤ nNFFin` e a procedência da faixa são da SEFAZ.
+      const inteiroEntre = (v: unknown, min: number, max: number) => Number.isInteger(v) && (v as number) >= min && (v as number) <= max;
+      if (![55, 65].includes(c.modelo as number) || !inteiroEntre(c.serie, 0, 999) || !inteiroEntre(c.nNFIni, 1, 999_999_999) || !inteiroEntre(c.nNFFin, 1, 999_999_999) || typeof c.xJust !== 'string' || c.xJust.length < 15 || c.xJust.length > 255 || !PATTERN_TEXTO_SEFAZ.test(c.xJust))
+        return problema(422, 'invalid-request-body', 'forma inválida: modelo 55|65, serie 0–999, nNFIni/nNFFin 1–999999999, xJust 15–255');
+      const replay = this.replay(String(chave), corpo);
+      if (replay) return replay;
+      const o = this.criarOperacao('nfe.inutiliza', cred.emitenteId!, null, c, String(chave));
+      if (this.modoOperacoes === 'sincrono' && Number(query.get('wait') ?? 0) > 0) {
+        this.concluirOperacao(o.id, (c.nNFIni as number) <= (c.nNFFin as number) ? 'authorized' : 'rejected');
+        return json(200, representacaoOperacao(o));
+      }
+      return json(202, aceiteOperacao(o, `/v1/inutilizacoes/${o.id}`));
+    }
+
     // ---- Emissão e acompanhamento: escopo de emitente. ----
     if (partes[1] === 'nfe') {
       if (cred.escopo !== 'emitente') return problema(403, 'emitente-scope-required');
-      const query = new URLSearchParams(caminho.split('?')[1] ?? '');
 
       if (metodo === 'POST' && partes.length === 2) {
         if (!cabecalhos['idempotency-key']) return problema(422, 'idempotency-key-required', 'informe o header Idempotency-Key');
         const chave = String(cabecalhos['idempotency-key']);
         const c = corpo as { modelo?: number; serie?: number; numero?: number; documento?: unknown };
         if (![55, 65].includes(c.modelo!) || !Number.isInteger(c.serie) || typeof c.documento !== 'object') return problema(422, 'invalid-request-body', 'modelo deve ser 55 (NF-e) ou 65 (NFC-e)');
-        const impressao = canonico(corpo);
-        const vista = this.chaves.get(chave);
-        if (vista) {
-          if (vista.impressao !== impressao) return problema(422, 'idempotency-key-conflict', 'mesma Idempotency-Key com corpo diferente');
-          const replay = this.comandos.get(vista.id)!;
-          return json(ehTerminal(replay.status) ? 200 : 202, aceite(replay));
-        }
+        const replay = this.replay(chave, corpo);
+        if (replay) return replay;
         const serie = this.series.find((s) => s.emitenteId === cred.emitenteId && s.modelo === c.modelo && s.serie === c.serie);
         if (!serie) return problema(404, 'series-not-provisioned', `série modelo=${c.modelo} serie=${c.serie} não provisionada`);
         if (c.numero !== undefined) return problema(422, 'number-not-allowed-managed', 'série managed: a plataforma aloca o número; não informe numero');
@@ -242,10 +331,13 @@ export class ApiFalsa {
           result: null,
           documento: c.documento,
           canceladaEm: null,
+          protocoloCancelamento: null,
+          justificativaCancelamento: null,
+          verdadeSefaz: null,
           criadoEm: new Date().toISOString(),
         };
         this.comandos.set(novo.id, novo);
-        this.chaves.set(chave, { impressao, id: novo.id });
+        this.chaves.set(chave, { impressao: canonico(corpo), id: novo.id });
         if (this.modoEmissao === 'sincrono' && Number(query.get('wait') ?? 0) > 0) {
           this.concluir(novo.id, 'authorized');
           return json(200, representacao(novo));
@@ -263,7 +355,24 @@ export class ApiFalsa {
       const comando = this.comandos.get(partes[2]);
       if (!comando || comando.emitenteId !== cred.emitenteId) return problema(404, 'command-not-found', `comando ${partes[2]} não encontrado`);
       const sub = partes[3];
-      if (metodo === 'GET' && !sub) return json(200, { ...representacao(comando), situacao: comando.situacao, resumo: null, chave: comando.chave, protocolo: comando.result?.protocolo ?? null, recebidaEm: comando.criadoEm, autorizadaEm: null, canceladaEm: comando.canceladaEm, protocoloCancelamento: null, justificativaCancelamento: null, correcaoVigente: null });
+      const cartas = () => [...this.operacoes.values()].filter((o) => o.tipo === 'nfe.cce' && o.notaId === comando.id);
+
+      if (metodo === 'GET' && !sub) {
+        const vigente = cartas().filter((o) => o.situacao === 'registrada').at(-1);
+        return json(200, {
+          ...representacao(comando),
+          situacao: comando.situacao,
+          resumo: null,
+          chave: comando.chave,
+          protocolo: comando.result?.protocolo ?? null,
+          recebidaEm: comando.criadoEm,
+          autorizadaEm: null,
+          canceladaEm: comando.canceladaEm,
+          protocoloCancelamento: comando.protocoloCancelamento,
+          justificativaCancelamento: comando.justificativaCancelamento,
+          correcaoVigente: vigente ? { texto: vigente.corpo.xCorrecao, nSeq: vigente.nSeq, registradaEm: vigente.concluidaEm } : null,
+        });
+      }
       if (metodo === 'GET' && sub === 'xml') {
         if (comando.situacao !== 'autorizada') return problema(409, 'nfe-xml-unavailable', 'a nota ainda não foi autorizada; não há XML para baixar');
         return { status: 200, tipo: 'application/xml', corpo: undefined, texto: `<nfeProc><NFe><infNFe Id="NFe${comando.chave}"/></NFe></nfeProc>`, disposicao: `attachment; filename="${comando.chave}.xml"` };
@@ -272,9 +381,82 @@ export class ApiFalsa {
         if (!['autorizada', 'cancelada'].includes(comando.situacao)) return problema(409, 'nfe-danfe-unavailable', 'não há XML assinado desta nota para gerar o DANFE');
         return { status: 200, tipo: 'application/pdf', corpo: undefined, texto: `%PDF-1.4 DANFE ${comando.chave} ${comando.situacao}`, disposicao: `inline; filename="${comando.chave}.pdf"` };
       }
+
+      // ---- As operações sobre a nota. ----
+      if (metodo === 'POST' && sub === 'consulta') {
+        // Reconcilia com a SEFAZ: o que ela sabe passa a valer. Sem evento no feed; a releitura traz o resultado.
+        if (comando.verdadeSefaz) {
+          comando.situacao = comando.verdadeSefaz;
+          if (comando.verdadeSefaz === 'cancelada') comando.canceladaEm = new Date().toISOString();
+          comando.verdadeSefaz = null;
+        }
+        return json(202, { id: randomUUID(), status: 'pending', links: { nota: `/v1/nfe/${comando.id}` } });
+      }
+
+      if (sub === 'cancelamento') {
+        if (metodo === 'GET') {
+          const tentativa = [...this.operacoes.values()].filter((o) => o.tipo === 'nfe.cancel' && o.notaId === comando.id).at(-1);
+          if (!tentativa) return problema(404, 'command-not-found', 'nenhuma tentativa de cancelamento para esta nota');
+          return json(200, { situacao: tentativa.situacao, justificativa: tentativa.corpo.justificativa, protocolo: tentativa.protocolo, motivo: tentativa.motivo, criadaEm: tentativa.criadaEm, concluidaEm: tentativa.concluidaEm });
+        }
+        if (metodo === 'POST') {
+          const chave = cabecalhos['idempotency-key'];
+          if (!chave) return problema(422, 'idempotency-key-required', 'informe o header Idempotency-Key');
+          const c = corpo as { justificativa?: unknown };
+          if (typeof c.justificativa !== 'string' || c.justificativa.length < 15 || c.justificativa.length > 255 || !PATTERN_TEXTO_SEFAZ.test(c.justificativa))
+            return problema(422, 'cancellation-reason-invalid', 'justificativa deve ter entre 15 e 255 caracteres, no envelope da SEFAZ');
+          if (comando.situacao !== 'autorizada') return problema(409, 'nfe-not-cancelable', `a nota está '${comando.situacao}'; só uma nota autorizada pode ser cancelada`);
+          const replay = this.replay(String(chave), corpo);
+          if (replay) return replay;
+          const o = this.criarOperacao('nfe.cancel', cred.emitenteId!, comando.id, c as Record<string, unknown>, String(chave));
+          if (this.modoOperacoes === 'sincrono') this.concluirOperacao(o.id, 'authorized');
+          return json(202, aceiteOperacao(o, `/v1/nfe/${comando.id}/cancelamento`, `/v1/nfe/${comando.id}`));
+        }
+      }
+
+      if (sub === 'cce') {
+        if (metodo === 'GET') {
+          return json(200, { dados: cartas().map((o) => ({ id: o.id, situacao: o.situacao, nSeq: o.nSeq, texto: o.corpo.xCorrecao, protocolo: o.protocolo, motivo: o.motivo, criadaEm: o.criadaEm, registradaEm: o.situacao === 'registrada' ? o.concluidaEm : null })) });
+        }
+        if (metodo === 'POST') {
+          const chave = cabecalhos['idempotency-key'];
+          if (!chave) return problema(422, 'idempotency-key-required', 'informe o header Idempotency-Key');
+          const c = corpo as { xCorrecao?: unknown };
+          if (typeof c.xCorrecao !== 'string' || c.xCorrecao.length < 15 || c.xCorrecao.length > 1000 || !PATTERN_TEXTO_SEFAZ.test(c.xCorrecao))
+            return problema(422, 'correction-text-invalid', 'xCorrecao deve ter entre 15 e 1000 caracteres, no envelope da SEFAZ');
+          if (comando.modelo === 65) return problema(409, 'nfe-cce-model-not-allowed', 'a NFC-e (modelo 65) não aceita Carta de Correção');
+          if (comando.situacao !== 'autorizada') return problema(409, 'nfe-not-correctable', `a nota está '${comando.situacao}'; só uma nota autorizada aceita carta`);
+          if (cartas().length >= 20) return problema(409, 'nfe-cce-limit-reached', 'a nota já tem vinte cartas');
+          const replay = this.replay(String(chave), corpo);
+          if (replay) return replay;
+          const o = this.criarOperacao('nfe.cce', cred.emitenteId!, comando.id, c as Record<string, unknown>, String(chave));
+          o.nSeq = cartas().length; // já inclui esta
+          if (this.modoOperacoes === 'sincrono') this.concluirOperacao(o.id, 'authorized');
+          return json(202, aceiteOperacao(o, `/v1/nfe/${comando.id}/cce`, `/v1/nfe/${comando.id}`));
+        }
+      }
     }
 
     return problema(404, 'not-found', `a API falsa não conhece ${metodo} ${caminho}`);
+  }
+
+  /** Mesma chave, mesmo corpo: replay (o mesmo `id`). Mesma chave, corpo diferente: 422. Chave nova: `null`. */
+  private replay(chave: string, corpo: unknown): RespostaFalsa | null {
+    const vista = this.chaves.get(chave);
+    if (!vista) return null;
+    if (vista.impressao !== canonico(corpo)) return { status: 422, tipo: 'application/problem+json', corpo: { type: 'idempotency-key-conflict', title: 'idempotency-key-conflict', status: 422, detail: 'mesma Idempotency-Key com corpo diferente', instance: '' } };
+    const comando = this.comandos.get(vista.id);
+    if (comando) return json(ehTerminal(comando.status) ? 200 : 202, aceite(comando));
+    const o = this.operacoes.get(vista.id)!;
+    return json(ehTerminal(o.status) ? 200 : 202, aceiteOperacao(o, ''));
+  }
+
+  private criarOperacao(tipo: OperacaoFalsa['tipo'], emitenteId: string, notaId: string | null, corpo: Record<string, unknown>, chave: string): OperacaoFalsa {
+    const o: OperacaoFalsa = { id: randomUUID(), tipo, emitenteId, notaId, status: 'pending', outcome: null, situacao: 'processando', corpo, protocolo: null, motivo: null, nSeq: null, criadaEm: new Date().toISOString(), concluidaEm: null };
+    this.operacoes.set(o.id, o);
+    this.chaves.set(chave, { impressao: canonico(corpo), id: o.id });
+    this.publicar(o.id, tipo, 'pending', null);
+    return o;
   }
 
   private comWebhook(e: Record<string, unknown>) {
@@ -303,3 +485,21 @@ function canonico(v: unknown): string {
 const aceite = (c: Comando) => ({ id: c.id, status: c.status, links: { self: `/v1/nfe/${c.id}`, events: '/v1/nfe/events?since=0' } });
 
 const representacao = (c: Comando) => ({ id: c.id, status: c.status, outcome: c.outcome, modelo: c.modelo, serie: c.serie, numero: c.numero, result: c.result, attempts: 1, retentativa: null, criadoEm: c.criadoEm, atualizadoEm: new Date().toISOString() });
+
+/** O aceite de uma operação: o `id` é do comando NOVO; `links.nota` aponta a nota. */
+const aceiteOperacao = (o: OperacaoFalsa, self: string, nota?: string) => ({ id: o.id, status: o.status, links: { self, ...(nota ? { nota } : { events: '/v1/nfe/events?since=0' }) } });
+
+/** A representação completa de uma inutilização resolvida no `wait`. */
+const representacaoOperacao = (o: OperacaoFalsa) => ({
+  id: o.id,
+  status: o.status,
+  outcome: o.outcome,
+  modelo: o.corpo.modelo,
+  serie: o.corpo.serie,
+  numero: null,
+  result: o.outcome === 'authorized' ? { protocolo: o.protocolo } : { motivo: o.motivo },
+  attempts: 1,
+  retentativa: null,
+  criadoEm: o.criadaEm,
+  atualizadoEm: new Date().toISOString(),
+});

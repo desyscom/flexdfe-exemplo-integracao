@@ -10,6 +10,9 @@
 // 3. Erros vêm em dois envelopes, separados pelo Content-Type e não pelo status HTTP:
 //    `application/problem+json` nas rotas de negócio (programe contra o `type`, nunca contra o `title`)
 //    e `{ "erro": "..." }` na autenticação. `ErroApi` carrega os dois.
+// 4. `429` é a borda pedindo recuo, não erro de negócio: não traz envelope nem `type`. O cliente espera o
+//    `Retry-After` e repete a MESMA requisição, com a mesma `Idempotency-Key`. Como toda escrita é idempotente,
+//    repetir é seguro; trocar a chave é que criaria uma segunda nota.
 
 import type { Credencial } from './config.ts';
 
@@ -48,6 +51,8 @@ export type Opcoes = {
   enderecoBase: string;
   /** Recebe cada chamada feita. A tela usa para listar as rotas consumidas. */
   aoChamar?: (chamada: Chamada) => void;
+  /** Quantas vezes repetir uma requisição que voltou `429` antes de desistir. */
+  tentativasNo429?: number;
 };
 
 // ---- Tipos das respostas que este exemplo lê. Só os campos usados; a Referência tem todos. ----
@@ -140,13 +145,50 @@ export type RepresentacaoComando = {
   atualizadoEm: string;
 };
 
+/** A correção que o fisco considera hoje: a última carta registrada. A próxima carta é construída sobre ela. */
+export type CorrecaoVigente = { texto: string; nSeq: number; registradaEm: string | null };
+
 /** O `GET /v1/nfe/{id}`: a representação do comando mais a `situacao` de nível-nota, chave e marcos. */
 export type NotaDetalhe = RepresentacaoComando & {
   situacao: string;
   chave: string | null;
   protocolo: string | null;
   canceladaEm: string | null;
+  protocoloCancelamento: string | null;
+  justificativaCancelamento: string | null;
+  correcaoVigente: CorrecaoVigente | null;
 };
+
+/**
+ * Aceite de uma operação sobre a nota (consulta, cancelamento, carta): o `id` é do comando NOVO, não o da
+ * nota. É esse `id` que o feed vai citar no `nfe.cancel`/`nfe.cce`; `links.nota` continua apontando a nota.
+ */
+export type AceiteOperacao = { id: string; status: string; links: { self?: string; nota: string } };
+
+/** `GET /v1/nfe/{id}/cancelamento`: a tentativa. Um cancelamento que falha também aparece aqui. */
+export type TentativaCancelamento = {
+  situacao: 'processando' | 'registrada' | 'rejeitada' | 'falha';
+  justificativa: string;
+  protocolo: string | null;
+  motivo: string | null;
+  criadaEm: string;
+  concluidaEm: string | null;
+};
+
+/** Uma carta do histórico `GET /v1/nfe/{id}/cce`. Só a `registrada` corrige; a vigente é a última delas. */
+export type CartaCorrecao = {
+  id: string;
+  situacao: 'processando' | 'registrada' | 'rejeitada' | 'indeterminada' | 'falha';
+  nSeq: number | null;
+  texto: string;
+  protocolo: string | null;
+  motivo: string | null;
+  criadaEm: string;
+  registradaEm: string | null;
+};
+
+/** Corpo do `POST /v1/inutilizacoes`: a faixa de uma série e a justificativa. A borda só confere a forma. */
+export type FaixaInutilizacao = { modelo: 55 | 65; serie: number; nNFIni: number; nNFFin: number; xJust: string };
 
 export type EventoFeed = {
   seq: number;
@@ -166,6 +208,23 @@ export function criarClienteApi(opcoes: Opcoes) {
   const basic = (cred: Credencial): string =>
     'Basic ' + Buffer.from(`${cred.clientId}:${cred.secret}`).toString('base64');
 
+  /**
+   * O único `fetch`. Um `429` não é resposta: é a borda pedindo para esperar. O cliente lê o `Retry-After`,
+   * espera e repete a mesma requisição, cabeçalhos inclusive; a `Idempotency-Key` vai igual, e a API trata a
+   * repetição como replay. Cada tentativa é registrada em `aoChamar`, para a tela mostrar o 429 e o que veio depois.
+   */
+  async function buscar(metodo: string, caminho: string, init: RequestInit): Promise<Response> {
+    const tentativas = opcoes.tentativasNo429 ?? 3;
+    for (let tentativa = 1; ; tentativa++) {
+      const inicio = Date.now();
+      const resposta = await fetch(opcoes.enderecoBase + caminho, { ...init, method: metodo });
+      opcoes.aoChamar?.({ metodo, caminho, status: resposta.status, ms: Date.now() - inicio });
+      if (resposta.status !== 429 || tentativa >= tentativas) return resposta;
+      await resposta.arrayBuffer(); // descarta o corpo: um 429 da borda não tem envelope para ler
+      await new Promise((ok) => setTimeout(ok, recuoMs(resposta.headers.get('retry-after'), tentativa)));
+    }
+  }
+
   /** O único lugar que fala HTTP em JSON. Tudo abaixo é uma linha por rota. */
   async function chamar<T>(
     cred: Credencial,
@@ -174,9 +233,7 @@ export function criarClienteApi(opcoes: Opcoes) {
     corpo?: unknown,
     cabecalhos: Record<string, string> = {},
   ): Promise<{ status: number; corpo: T }> {
-    const inicio = Date.now();
-    const resposta = await fetch(opcoes.enderecoBase + caminho, {
-      method: metodo,
+    const resposta = await buscar(metodo, caminho, {
       headers: {
         Authorization: basic(cred),
         Accept: 'application/json, application/problem+json',
@@ -185,7 +242,6 @@ export function criarClienteApi(opcoes: Opcoes) {
       },
       body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
     });
-    opcoes.aoChamar?.({ metodo, caminho, status: resposta.status, ms: Date.now() - inicio });
 
     const contentType = resposta.headers.get('content-type') ?? '';
     const texto = await resposta.text();
@@ -197,11 +253,7 @@ export function criarClienteApi(opcoes: Opcoes) {
 
   /** Igual a `chamar`, mas devolve os bytes: XML e PDF não são JSON. O erro continua vindo em JSON. */
   async function baixar(cred: Credencial, caminho: string, aceitar: string): Promise<Arquivo> {
-    const inicio = Date.now();
-    const resposta = await fetch(opcoes.enderecoBase + caminho, {
-      headers: { Authorization: basic(cred), Accept: `${aceitar}, application/problem+json` },
-    });
-    opcoes.aoChamar?.({ metodo: 'GET', caminho, status: resposta.status, ms: Date.now() - inicio });
+    const resposta = await buscar('GET', caminho, { headers: { Authorization: basic(cred), Accept: `${aceitar}, application/problem+json` } });
     const contentType = resposta.headers.get('content-type') ?? '';
     if (!resposta.ok) {
       const texto = await resposta.text();
@@ -268,6 +320,41 @@ export function criarClienteApi(opcoes: Opcoes) {
     /** Sempre que há XML assinado: autorizada e cancelada (com tarja). Fora disso, `409 nfe-danfe-unavailable`. */
     baixarDanfe: (cred: Credencial, id: string) => baixar(cred, `/v1/nfe/${id}/danfe`, 'application/pdf'),
 
+    // ---- Operações sobre a nota emitida: escopo de EMITENTE. Assíncronas: 202 com o id do comando NOVO. ----
+
+    /** Pede à SEFAZ a situação real da nota. Não gera evento no feed: o resultado vem ao reler `GET /v1/nfe/{id}`. */
+    consultarNfe: (cred: Credencial, id: string) => chamar<AceiteOperacao>(cred, 'POST', `/v1/nfe/${id}/consulta`),
+
+    /**
+     * Só a nota `autorizada` cancela (senão `409 nfe-not-cancelable`). Vai só a justificativa (15–255, no envelope da
+     * SEFAZ; senão `422 cancellation-reason-invalid`); a plataforma deriva protocolo e data. Exige `Idempotency-Key`.
+     * A janela de 24h não é conferida aqui: a SEFAZ decide, e o desfecho chega pelo feed como `nfe.cancel`.
+     */
+    cancelarNfe: (cred: Credencial, id: string, justificativa: string, idempotencyKey: string) =>
+      chamar<AceiteOperacao>(cred, 'POST', `/v1/nfe/${id}/cancelamento`, { justificativa }, { 'Idempotency-Key': idempotencyKey }),
+
+    /** A tentativa de cancelamento, registrada ou não. `404` enquanto nenhuma foi feita. */
+    lerCancelamento: (cred: Credencial, id: string) => chamar<TentativaCancelamento>(cred, 'GET', `/v1/nfe/${id}/cancelamento`),
+
+    /**
+     * A carta de correção. O texto (15–1000) SUBSTITUI a correção anterior por inteiro: monte-o cumulativo, a
+     * partir de `correcaoVigente`. Só no modelo 55 (`409 nfe-cce-model-not-allowed` no 65) e só na nota autorizada
+     * (`409 nfe-not-correctable`). A situação da nota não muda; o desfecho da carta vem pelo feed como `nfe.cce`.
+     */
+    emitirCce: (cred: Credencial, id: string, xCorrecao: string, idempotencyKey: string) =>
+      chamar<AceiteOperacao>(cred, 'POST', `/v1/nfe/${id}/cce`, { xCorrecao }, { 'Idempotency-Key': idempotencyKey }),
+
+    /** O histórico das cartas, inclusive as que não corrigiram nada. Lista vazia quando não há nenhuma. */
+    listarCce: (cred: Credencial, id: string) => chamar<{ dados: CartaCorrecao[] }>(cred, 'GET', `/v1/nfe/${id}/cce`),
+
+    /**
+     * Declara à SEFAZ que a faixa `nNFIni`–`nNFFin` de uma série não será usada. É passthrough: a borda confere a
+     * forma dos campos e nada mais; se a faixa procede é a SEFAZ que decide, e a recusa volta como desfecho
+     * rejeitado, não como `422`. Mesmo molde da emissão: `Idempotency-Key`, `wait`, e o feed fecha como `nfe.inutiliza`.
+     */
+    inutilizarFaixa: (cred: Credencial, faixa: FaixaInutilizacao, idempotencyKey: string, waitMs: number) =>
+      chamar<RepresentacaoComando | AceiteComando>(cred, 'POST', `/v1/inutilizacoes?wait=${waitMs}`, faixa, { 'Idempotency-Key': idempotencyKey }),
+
     // ---- Webhook: aceita os dois escopos. ----
 
     /** Upsert. O `secret` só vem quando o PUT cria; distinga pela presença dele, não pelo status. */
@@ -277,3 +364,17 @@ export function criarClienteApi(opcoes: Opcoes) {
 }
 
 export type ClienteApi = ReturnType<typeof criarClienteApi>;
+
+/**
+ * Quanto esperar antes de repetir. `Retry-After` pode vir em segundos ou como data HTTP; sem ele, recuo
+ * exponencial. É o header que manda: a borda sabe quando vai aceitar de novo, o cliente não.
+ */
+export function recuoMs(retryAfter: string | null, tentativa: number): number {
+  if (retryAfter !== null) {
+    const segundos = Number(retryAfter);
+    if (Number.isFinite(segundos)) return Math.max(0, segundos) * 1000;
+    const data = Date.parse(retryAfter);
+    if (Number.isFinite(data)) return Math.max(0, data - Date.now());
+  }
+  return 2 ** tentativa * 500;
+}

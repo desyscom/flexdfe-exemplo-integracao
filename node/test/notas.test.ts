@@ -204,8 +204,8 @@ test('XML só na autorizada (409 nfe-xml-unavailable antes); DANFE na autorizada
     assert.match(await danfe.text(), /^%PDF/);
 
     // Cancelada: o DANFE continua (com tarja); o XML autorizado some da tela.
-    c.api.cancelar(nota.commandId!);
-    c.banco.db.prepare('UPDATE nota SET situacao = ? WHERE id = ?').run('cancelada', nota.id);
+    await c.post(`/notas/${nota.id}/cancelar`, { justificativa: 'Cancelamento por erro de digitacao no valor' });
+    await c.post('/eventos/puxar');
     tela = await c.get('/notas');
     assert.match(tela.html, /<b>cancelada<\/b>/);
     assert.doesNotMatch(tela.html, new RegExp(`/notas/${nota.id}/xml`));

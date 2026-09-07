@@ -40,6 +40,7 @@ const TELAS: [caminho: string, nome: string][] = [
   ['/destinatarios', 'Destinatários'],
   ['/nova-nota', 'Nova nota'],
   ['/notas', 'Notas'],
+  ['/inutilizacao', 'Inutilização'],
   ['/eventos', 'Eventos'],
 ];
 
@@ -100,6 +101,9 @@ export function resultado(r: Resultado): Html {
 /** Traduz um erro qualquer no bloco de resultado, sem esconder o envelope. */
 export function resultadoDeErro(titulo: string, erro: unknown): Resultado {
   if (erro instanceof ErroApi) {
+    if (erro.status === 429) {
+      return { ok: false, titulo: `${titulo}: HTTP 429 depois de recuar e repetir`, detalhe: 'É a borda pedindo recuo, sem envelope de negócio nem type. O cliente já respeitou o Retry-After e repetiu com a mesma Idempotency-Key; espere e tente de novo, com a mesma chave.' };
+    }
     const envelope = erro.type ? 'application/problem+json' : 'json com { erro }';
     return {
       ok: false,
