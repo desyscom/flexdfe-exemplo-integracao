@@ -1,0 +1,10 @@
+# Segredos e dados do programador: nunca entram em repositório nenhum.
+.env
+*.pfx
+*.p12
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+node_modules/

@@ -1,0 +1,21 @@
+{
+  "name": "flexdfe-exemplo-integracao",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Exemplo de integração com a API do Flex DFe: Node sem framework, TypeScript executado direto pelo Node.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/servidor.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
+    "tipos": "tsc --noEmit",
+    "check": "npm run tipos && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.0"
+  }
+}

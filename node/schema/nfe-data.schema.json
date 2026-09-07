@@ -1,0 +1,3099 @@
+{
+  "$comment": "Copiado do flex-dfe na tag v0.1.0 (apps/api/openapi/nfe-data.schema.json) em 06/09/2026. Nao edite: substitua pela copia da tag seguinte quando o contrato mudar.",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "x-proveniencia": {
+    "gerado": "Artefato gerado automaticamente — NÃO EDITAR À MÃO.",
+    "descricao": "JSON Schema do campo `documento` do corpo de `POST /v1/nfe`.",
+    "regenerar": "npm run gen:schema -w apps/api"
+  },
+  "$ref": "#/definitions/NFeData",
+  "definitions": {
+    "NFeData": {
+      "type": "object",
+      "properties": {
+        "ide": {
+          "$ref": "#/definitions/IdeData"
+        },
+        "dest": {
+          "$ref": "#/definitions/Destinatario"
+        },
+        "itens": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ItemNFe"
+          }
+        },
+        "total": {
+          "$ref": "#/definitions/Totais"
+        },
+        "transp": {
+          "$ref": "#/definitions/Transporte"
+        },
+        "pag": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pagamento"
+          }
+        },
+        "vTroco": {
+          "type": "number",
+          "description": "Troco devolvido ao consumidor (`<vTroco>`, YA09), no **nível do `pag`** (irmão dos `detPag` no XSD). Transcrito; entra na conferência do pagamento `Σ vPag − vTroco = vNF`. Mantido como campo do documento (não dentro de `pag`, que é a lista de `detPag`) para preservar o contrato em array."
+        },
+        "cobr": {
+          "$ref": "#/definitions/Cobranca"
+        },
+        "infAdic": {
+          "$ref": "#/definitions/InfAdicional"
+        },
+        "autXML": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AutorizadoXML"
+          },
+          "description": "Autorizados a baixar o XML (`<autXML>`) — N entradas CNPJ × CPF; ausente ⇒ omitido."
+        },
+        "retirada": {
+          "$ref": "#/definitions/LocalNFe",
+          "description": "Local de retirada (`<retirada>`, F01), quando difere do remetente. Ausente ⇒ omitido."
+        },
+        "entrega": {
+          "$ref": "#/definitions/LocalNFe",
+          "description": "Local de entrega (`<entrega>`, G01), quando difere do destinatário. Ausente ⇒ omitido."
+        },
+        "infIntermed": {
+          "$ref": "#/definitions/Intermediador",
+          "description": "Intermediador da transação (`<infIntermed>`, marketplace/delivery). Ausente ⇒ omitido."
+        },
+        "exporta": {
+          "$ref": "#/definitions/InformacaoExportacao",
+          "description": "Informações de exportação (`<exporta>`, ZA01), nível-nota, entre `infAdic` e `infRespTec` na sequência do XSD. Ausente ⇒ omitido."
+        },
+        "compra": {
+          "$ref": "#/definitions/InformacaoCompra",
+          "description": "Referências de compra pública (`<compra>`, ZB), nível-nota, entre `exporta` e `infRespTec` na sequência do XSD. Ausente ⇒ omitido."
+        },
+        "cana": {
+          "$ref": "#/definitions/RegistroCana",
+          "description": "Registro de aquisição de cana (`<cana>`, ZC), nível-nota, entre `compra` e `infRespTec` na sequência do XSD. Ausente ⇒ omitido."
+        },
+        "agropecuario": {
+          "$ref": "#/definitions/ProdutoAgropecuario",
+          "description": "Rastreabilidade agropecuária (`<agropecuario>`, ZF, NT 2024.003), nível-nota, **por último** no `infNFe` (após `infRespTec`). Sem gate de data. Ausente ⇒ omitido."
+        }
+      },
+      "required": [
+        "ide",
+        "itens",
+        "pag"
+      ],
+      "additionalProperties": false,
+      "description": "Dados específicos DESTA nota."
+    },
+    "IdeData": {
+      "type": "object",
+      "properties": {
+        "mod": {
+          "$ref": "#/definitions/Modelo"
+        },
+        "natOp": {
+          "type": "string"
+        },
+        "tpNF": {
+          "type": "number",
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "idDest": {
+          "type": "number",
+          "enum": [
+            1,
+            2,
+            3
+          ]
+        },
+        "tpImp": {
+          "type": "number",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "finNFe": {
+          "type": "number",
+          "enum": [
+            1,
+            2,
+            3,
+            4
+          ]
+        },
+        "indFinal": {
+          "type": "number",
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "indPres": {
+          "type": "number",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            9
+          ]
+        },
+        "NFref": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NFref"
+          },
+          "description": "N documentos referenciados (`<NFref>`) — devolução/complemento. Ausente ⇒ omitido. Exclusividade ao XSD."
+        },
+        "cMunFGIBS": {
+          "type": "string",
+          "description": "`cMunFGIBS` (XSD `TCodMunIBGE`) — código IBGE do município de **fato gerador do IBS** (operação cujo IBS é devido em outro município). Reforma: emitido só sob data-gate. Ausente ⇒ omitido (transcrito)."
+        },
+        "tpNFDebito": {
+          "type": "string",
+          "enum": [
+            "01",
+            "02",
+            "03",
+            "04",
+            "05",
+            "06",
+            "07",
+            "08"
+          ],
+          "description": "`tpNFDebito` (XSD `TTpNFDebito`) — tipo de nota de débito (`01`–`08`), associado à `finNFe=6`. Ausente ⇒ omitido."
+        },
+        "tpNFCredito": {
+          "type": "string",
+          "enum": [
+            "01",
+            "02",
+            "03",
+            "04",
+            "05"
+          ],
+          "description": "`tpNFCredito` (XSD `TTpNFCredito`) — tipo de nota de crédito (`01`–`05`), associado à `finNFe=5`. Ausente ⇒ omitido."
+        },
+        "gCompraGov": {
+          "$ref": "#/definitions/CompraGov",
+          "description": "`gCompraGov` (XSD `TCompraGov`) — compra governamental no `ide`. Ausente ⇒ omitido."
+        },
+        "gPagAntecipado": {
+          "$ref": "#/definitions/PagAntecipado",
+          "description": "`gPagAntecipado` (XSD) — abatimento de antecipação de pagamento, com N `refNFe`. Ausente ⇒ omitido."
+        }
+      },
+      "required": [
+        "mod",
+        "natOp",
+        "tpNF",
+        "idDest",
+        "tpImp",
+        "finNFe",
+        "indFinal",
+        "indPres"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo `<ide>` — o que o cliente descreve da operação. `serie`/`numero`/`dhEmi`/`cNF`/`tpEmis` vivem em `ControleEmissao`; `cUF`/`cDV` são derivados pela chave."
+    },
+    "Modelo": {
+      "type": "number",
+      "enum": [
+        55,
+        65
+      ]
+    },
+    "NFref": {
+      "type": "object",
+      "properties": {
+        "refNFe": {
+          "type": "string"
+        },
+        "refCTe": {
+          "type": "string"
+        },
+        "refNF": {
+          "$ref": "#/definitions/RefNFModelo"
+        },
+        "refNFP": {
+          "$ref": "#/definitions/RefNFProdutor"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Documento fiscal referenciado (`<NFref>`, BA01) do `ide` — **alternativas internas independentes**: chave de NF-e (`refNFe`), CT-e (`refCTe`), NF modelo 1/1A (`refNF`) ou NF de produtor (`refNFP`). A **exclusividade** (uma só por ocorrência) é do **XSD**, precedente do modal do `transp`. N por nota (`maxOccurs=999`). **Transcrito**. (`refNFeSig`/`refECF` ficam por replicação.)"
+    },
+    "RefNFModelo": {
+      "type": "object",
+      "properties": {
+        "cUF": {
+          "type": "string"
+        },
+        "AAMM": {
+          "type": "string"
+        },
+        "CNPJ": {
+          "type": "string"
+        },
+        "mod": {
+          "type": "string"
+        },
+        "serie": {
+          "type": "number"
+        },
+        "nNF": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "cUF",
+        "AAMM",
+        "CNPJ",
+        "mod",
+        "serie",
+        "nNF"
+      ],
+      "additionalProperties": false,
+      "description": "NF modelo 1/1A (ou modelo 2) referenciada (`<refNF>`, BA13) dentro de um `<NFref>` — UF, AAMM da emissão, CNPJ do emitente, modelo, série e número. **Transcrita**."
+    },
+    "RefNFProdutor": {
+      "type": "object",
+      "properties": {
+        "cUF": {
+          "type": "string"
+        },
+        "AAMM": {
+          "type": "string"
+        },
+        "CNPJ": {
+          "type": "string"
+        },
+        "CPF": {
+          "type": "string"
+        },
+        "IE": {
+          "type": "string"
+        },
+        "mod": {
+          "type": "string"
+        },
+        "serie": {
+          "type": "number"
+        },
+        "nNF": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "cUF",
+        "AAMM",
+        "IE",
+        "mod",
+        "serie",
+        "nNF"
+      ],
+      "additionalProperties": false,
+      "description": "NF de produtor referenciada (`<refNFP>`, BA19) dentro de um `<NFref>` — UF, AAMM, escolha CNPJ × CPF do produtor, IE, modelo, série e número. **Transcrita**."
+    },
+    "CompraGov": {
+      "type": "object",
+      "properties": {
+        "tpEnteGov": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        },
+        "pRedutor": {
+          "type": "number"
+        },
+        "tpOperGov": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2"
+          ]
+        }
+      },
+      "required": [
+        "tpEnteGov",
+        "pRedutor",
+        "tpOperGov"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo **`gCompraGov`** (XSD `TCompraGov`) do `ide` — **compra governamental**: identifica o ente governamental adquirente (`tpEnteGov`: 1=União, 2=Estados, 3=DF, 4=Municípios), o percentual de redução de alíquota (`pRedutor`) e o tipo da operação (`tpOperGov`: 1=Fornecimento, 2=Recebimento do Pagamento). **transcritos**. Presence-driven: informado ⇒ emite `<gCompraGov>`; ausente ⇒ omitido. O `tpOperGov` é **obrigatório** no `TCompraGov` do `ide` (XSD), por isso não é opcional."
+    },
+    "PagAntecipado": {
+      "type": "object",
+      "properties": {
+        "refNFe": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "refNFe"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo **`gPagAntecipado`** (XSD) do `ide` — **abatimento de antecipação de pagamento** (art. 10 §4º): referencia as `refNFe` das NF-e de antecipação cujas parcelas são abatidas. `refNFe` é **repetido** (`maxOccurs=99` ao XSD) via o construto `many`, como `NVE[]`. **Transcrito**. Presence-driven: informado ⇒ emite `<gPagAntecipado>`; ausente ⇒ omitido."
+    },
+    "Destinatario": {
+      "type": "object",
+      "properties": {
+        "CNPJ": {
+          "type": "string"
+        },
+        "CPF": {
+          "type": "string"
+        },
+        "idEstrangeiro": {
+          "type": "string"
+        },
+        "xNome": {
+          "type": "string"
+        },
+        "endereco": {
+          "$ref": "#/definitions/Endereco"
+        },
+        "indIEDest": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "9"
+          ]
+        },
+        "IE": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string",
+          "description": "E-mail do destinatário (`<email>`, E19), cauda 4.00. Opcional, transcrito."
+        }
+      },
+      "required": [
+        "indIEDest"
+      ],
+      "additionalProperties": false,
+      "description": "Destinatário (grupo E). A identificação é **escolha exclusiva** CNPJ × CPF × idEstrangeiro (byPresence padrão B); a exclusividade é verificada em runtime, por isso os três são opcionais no tipo. Obrigatório no mod 55, opcional na NFCe (regra inline — o XSD tem `minOccurs=0`). Tipagem incremental: ISUF/IM/email entram por replicação."
+    },
+    "Endereco": {
+      "type": "object",
+      "properties": {
+        "uf": {
+          "type": "string"
+        },
+        "cMun": {
+          "type": "string"
+        },
+        "xLgr": {
+          "type": "string"
+        },
+        "nro": {
+          "type": "string"
+        },
+        "xBairro": {
+          "type": "string"
+        },
+        "xMun": {
+          "type": "string"
+        },
+        "CEP": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uf",
+        "cMun"
+      ],
+      "additionalProperties": {},
+      "description": "Endereço do emitente/destinatário. UF e cMun alimentam a chave e a URL. Campos adicionais do grupo são aceitos e validados contra o XSD."
+    },
+    "ItemNFe": {
+      "type": "object",
+      "properties": {
+        "prod": {
+          "$ref": "#/definitions/ProdData"
+        },
+        "imposto": {
+          "$ref": "#/definitions/ImpostoData"
+        },
+        "impostoDevol": {
+          "$ref": "#/definitions/ImpostoDevol",
+          "description": "IPI devolvido (`<impostoDevol>`, UA01) — irmão do `imposto` no nível `det`, **depois** do `imposto` e **antes** do `infAdProd`. Presence-driven (ausente ⇒ omitido)."
+        },
+        "infAdProd": {
+          "type": "string",
+          "description": "Informações adicionais do produto (`<infAdProd>`, V01) — texto livre (norma referenciada, etc.), opcional e transcrito. Nível `det` (depois do `imposto`), não `prod`. Ausente ⇒ omitido."
+        },
+        "obsItem": {
+          "$ref": "#/definitions/ObservacaoItem",
+          "description": "Observações de uso livre do item (`<obsItem>`, VA01), nível `det`. Ausente ⇒ omitido."
+        }
+      },
+      "required": [
+        "prod",
+        "imposto"
+      ],
+      "additionalProperties": false,
+      "description": "Item `<det>` = prod + imposto (+ a cauda do `det`). Tipagem incremental. O `infAdProd` e o `obsItem` são irmãos de `prod`/`imposto` no XSD (depois do `imposto`), por isso vivem aqui no item — não no `prod`."
+    },
+    "ProdData": {
+      "type": "object",
+      "properties": {
+        "cProd": {
+          "type": "string"
+        },
+        "cEAN": {
+          "type": "string"
+        },
+        "cBarra": {
+          "type": "string",
+          "description": "Código de barras **fora do padrão GTIN** (`<cBarra>`, I03a) — opcional, transcrito. Solto na sequência do `prod`, logo após `cEAN`. Pattern/tamanho (3–30) ao XSD; ausente ⇒ omitido."
+        },
+        "xProd": {
+          "type": "string"
+        },
+        "NCM": {
+          "type": "string"
+        },
+        "nve": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Nomenclatura de Valor aduaneiro e Estatístico (`<NVE>`, I05a) — **repetição escalar** (até 8 ocorrências, um código cada), após o `NCM`. Array de strings ⇒ N elementos `<NVE>` irmãos; ausente/vazio ⇒ nenhum. O pattern (`[A-Z]{2}[0-9]{4}`) e o teto `maxOccurs=8` ficam com o XSD."
+        },
+        "CEST": {
+          "type": "string",
+          "description": "Código especificador da Substituição Tributária (`<CEST>`, I05c) — **campo solto** opcional, após o `NVE`. Junto de `indEscala`/`CNPJFab` corresponde a uma `xs:sequence` **anônima** do XSD (sem elemento-invólucro), por isso são três campos soltos, não um grupo. A obrigatoriedade condicional (`CEST` exigido se a sub-sequência existe) é **deixada ao XSD** — sem invariante inline. Pattern `[0-9]{7}`."
+        },
+        "indEscala": {
+          "type": "string",
+          "description": "Indicador de escala relevante (`<indEscala>`, I05d) — `S`/`N`, opcional. Enum ao XSD"
+        },
+        "CNPJFab": {
+          "type": "string",
+          "description": "CNPJ do fabricante (`<CNPJFab>`, I05e) — opcional; obrigatório (ao XSD) para produto em escala **não** relevante (`indEscala=N`). A condicional é deixada ao XSD"
+        },
+        "cBenef": {
+          "type": "string",
+          "description": "Código de Benefício Fiscal na UF (`<cBenef>`, I05f) — opcional, transcrito. Pattern ao XSD."
+        },
+        "gCred": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GrupoCredito"
+          },
+          "description": "Crédito presumido do item (`<gCred>`, I05g) — **repetição** (até 4, um benefício cada), após `cBenef` e antes de `tpCredPresIBSZFM`/`EXTIPI` (campo da reforma no `prod`). Array ⇒ N `<gCred>` irmãos; ausente/vazio ⇒ nenhum. Transcrição cega; **não agrega** ao total. O teto `maxOccurs=4` fica com o XSD."
+        },
+        "tpCredPresIBSZFM": {
+          "type": "string",
+          "description": "Classificação do crédito presumido do IBS na ZFM (`<tpCredPresIBSZFM>`, I05k) — enum `0`–`4` (`TTpCredPresIBSZFM`), opcional, após `gCred` (campo da reforma no `prod`). Transcrito; enum ao XSD. Difere do `tpCredPresIBSZFM` do `gCredPresIBSZFM` (eixo `imposto`, T2a) — aqui é nível `prod`."
+        },
+        "EXTIPI": {
+          "type": "string",
+          "description": "Código EX da TIPI (`<EXTIPI>`, I06) — 2–3 dígitos, opcional, transcrito. Pattern ao XSD."
+        },
+        "CFOP": {
+          "type": "string"
+        },
+        "uCom": {
+          "type": "string"
+        },
+        "qCom": {
+          "type": "number"
+        },
+        "vUnCom": {
+          "type": "number"
+        },
+        "vProd": {
+          "type": "number"
+        },
+        "cEANTrib": {
+          "type": "string"
+        },
+        "cBarraTrib": {
+          "type": "string",
+          "description": "Código de barras **fora do padrão GTIN** da unidade tributável (`<cBarraTrib>`, I12a) — opcional, transcrito. Solto na sequência do `prod`, logo após `cEANTrib`. Tamanho (3–30) ao XSD; ausente ⇒ omitido."
+        },
+        "uTrib": {
+          "type": "string"
+        },
+        "qTrib": {
+          "type": "number"
+        },
+        "vUnTrib": {
+          "type": "number"
+        },
+        "vFrete": {
+          "type": "number",
+          "description": "Valores **acessórios** do item (`vFrete`/`vSeg`/`vDesc`/`vOutro`, I15–I17a), **opcionais monetários** (2 casas) entre `vUnTrib` e `indTot` na sequência do XSD. **Transcritos por presença** no `<prod>` (ausente ⇒ omitido) — frete, seguro, desconto e outras despesas rateados por item. **Compõem o `vNF`** (são valor do produto, não tributo): agregam ao `<total><ICMSTot>` e à fórmula W16, somando **apenas** os itens com `indTot=1` (simétrico ao `vProd`; um item `indTot=0` emite os seus no `<prod>` mas não agrega). O `vDesc` **subtrai** o `vNF`. Reconciliação só pelo `vNF` (não há conferência por campo — são insumos)."
+        },
+        "vSeg": {
+          "type": "number"
+        },
+        "vDesc": {
+          "type": "number"
+        },
+        "vOutro": {
+          "type": "number"
+        },
+        "indTot": {
+          "type": "number",
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "indBemMovelUsado": {
+          "type": "string",
+          "description": "Indicador de fornecimento de **bem móvel usado** (`<indBemMovelUsado>`, I17m) — enum `1` (único valor ao XSD), opcional, logo após `indTot` (campo da reforma no `prod`). Transcrito; ausente ⇒ omitido. Sinaliza o regime do bem usado para o IBS/CBS."
+        },
+        "DI": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DeclaracaoImportacao"
+          },
+          "description": "Declarações de Importação (`<DI>`, I18) — array (até 100 por item), após `indBemMovelUsado` e antes de `detExport`/`xPed` na sequência do XSD. Cada item vira um `<DI>` irmão na ordem; ausente/vazio ⇒ nenhum. Transcrição cega."
+        },
+        "detExport": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DetalheExportacao"
+          },
+          "description": "Detalhes de exportação (`<detExport>`, I50) — array (até 500 por item), logo após `DI` e antes de `xPed` na sequência do XSD. Cada item vira um `<detExport>` irmão na ordem; ausente/vazio ⇒ nenhum. Transcrição cega."
+        },
+        "xPed": {
+          "type": "string",
+          "description": "Pedido de compra B2B (`<xPed>`, I30) — opcional, transcrito. Após `indTot` na sequência do XSD."
+        },
+        "nItemPed": {
+          "type": "string",
+          "description": "Número do item no pedido de compra (`<nItemPed>`, I31) — 1–6 dígitos, opcional. Pattern ao XSD."
+        },
+        "nFCI": {
+          "type": "string",
+          "description": "Número de controle da FCI — Ficha de Conteúdo de Importação (`<nFCI>`, I70) — GUID, opcional."
+        },
+        "rastro": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Rastro"
+          },
+          "description": "Rastreabilidade de lote/validade (`<rastro>`, I80) — array (até 500 por item), após `nFCI`. Cada item vira um `<rastro>` irmão na ordem; ausente/vazio ⇒ nenhum. Transcrição cega."
+        },
+        "med": {
+          "$ref": "#/definitions/Medicamento",
+          "description": "Vertical `med` (farmácia) — `xs:choice minOccurs=0` do `prod`. Ausente ⇒ `<med>` omitido; presente ⇒ emitido e transcrito. A exclusividade entre verticais é do XSD."
+        },
+        "comb": {
+          "$ref": "#/definitions/Combustivel",
+          "description": "Vertical `comb` (combustíveis líquidos, posto) — `xs:choice minOccurs=0` do `prod`. Ausente ⇒ `<comb>` omitido; presente ⇒ emitido e transcrito. A exclusividade entre verticais é do XSD."
+        },
+        "veicProd": {
+          "$ref": "#/definitions/VeiculoNovo",
+          "description": "Vertical `veicProd` (veículos novos, concessionária) — `xs:choice minOccurs=0` do `prod`. Ausente ⇒ `<veicProd>` omitido; presente ⇒ emitido e transcrito. A exclusividade entre verticais é do XSD."
+        },
+        "arma": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Armamento"
+          },
+          "description": "Vertical `arma` (armamentos, loja de armas) — `xs:choice minOccurs=0` do `prod`, **única que repete** (`maxOccurs=500`). Cada item do array vira um `<arma>` irmão na ordem; ausente/vazio ⇒ nenhum `<arma>`. A exclusividade entre verticais é do XSD."
+        },
+        "nRECOPI": {
+          "type": "string",
+          "description": "Vertical `nRECOPI` (papel imune) — `xs:choice minOccurs=0` do `prod`, campo solto de 20 dígitos (pattern `[0-9]{20}` ao XSD). Ausente ⇒ `<nRECOPI>` omitido; presente ⇒ emitido. A exclusividade entre verticais é do XSD."
+        }
+      },
+      "required": [
+        "cProd",
+        "cEAN",
+        "xProd",
+        "NCM",
+        "CFOP",
+        "uCom",
+        "qCom",
+        "vUnCom",
+        "vProd",
+        "cEANTrib",
+        "uTrib",
+        "qTrib",
+        "vUnTrib",
+        "indTot"
+      ],
+      "additionalProperties": false,
+      "description": "Produto/serviço do item (`<prod>`). Tipagem incremental."
+    },
+    "GrupoCredito": {
+      "type": "object",
+      "properties": {
+        "cCredPresumido": {
+          "type": "string"
+        },
+        "pCredPresumido": {
+          "type": "number"
+        },
+        "vCredPresumido": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "cCredPresumido",
+        "pCredPresumido",
+        "vCredPresumido"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo de **crédito presumido** do item (`<gCred>`, I05g) do `prod` — código do benefício, percentual e valor, **transcrito cego**. Campos da reforma no nível `prod`, **fora do eixo `imposto`**. Grupo **repetido** (`maxOccurs=4` ao XSD). `cCredPresumido` (código do benefício, pattern `[!-ÿ]{8}|[!-ÿ]{10}` ao XSD), `pCredPresumido` (percentual, `TDec_0302a04`, preservado em 2–4 casas por `DeVar`) e `vCredPresumido` (valor, `TDec_1302`) — todos obrigatórios quando o grupo existe."
+    },
+    "DeclaracaoImportacao": {
+      "type": "object",
+      "properties": {
+        "nDI": {
+          "type": "string"
+        },
+        "dDI": {
+          "type": "string"
+        },
+        "xLocDesemb": {
+          "type": "string"
+        },
+        "UFDesemb": {
+          "type": "string"
+        },
+        "dDesemb": {
+          "type": "string"
+        },
+        "tpViaTransp": {
+          "type": "string"
+        },
+        "vAFRMM": {
+          "type": "number"
+        },
+        "tpIntermedio": {
+          "type": "string"
+        },
+        "CNPJ": {
+          "type": "string"
+        },
+        "CPF": {
+          "type": "string"
+        },
+        "UFTerceiro": {
+          "type": "string"
+        },
+        "cExportador": {
+          "type": "string"
+        },
+        "adi": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Adicao"
+          }
+        }
+      },
+      "required": [
+        "nDI",
+        "dDI",
+        "xLocDesemb",
+        "UFDesemb",
+        "dDesemb",
+        "tpViaTransp",
+        "tpIntermedio",
+        "cExportador",
+        "adi"
+      ],
+      "additionalProperties": false,
+      "description": "**Declaração de Importação** (`<DI>`, I18, XSD §det/prod/DI) — documenta a importação de um item, **transcrita cega**. Grupo **repetido** (`maxOccurs=100` ao XSD): N `<DI>` irmãos na ordem do array; aninha N `adi` (`Adicao`). `nDI` (nº do documento de importação), `dDI` (data de registro, `AAAA-MM-DD`), `xLocDesemb` (local do desembaraço), `UFDesemb` (UF do desembaraço), `dDesemb` (data do desembaraço), `tpViaTransp` (via de transporte, enum `1`–`13`), `tpIntermedio` (forma de intermediação, enum `1`–`3`) e `cExportador` (código do exportador) obrigatórios; `vAFRMM` (Adicional ao Frete para Renovação da Marinha Mercante) e `UFTerceiro` (UF do adquirente/encomendante) opcionais. A escolha **`CNPJ` xor `CPF`** do adquirente/encomendante (importação por conta e ordem/encomenda) é modelada como **dois campos opcionais soltos** — a exclusividade fica com o XSD. Patterns/tetos/enums ao XSD. Nada agrega/soma/confere."
+    },
+    "Adicao": {
+      "type": "object",
+      "properties": {
+        "nAdicao": {
+          "type": "string"
+        },
+        "nSeqAdic": {
+          "type": "string"
+        },
+        "cFabricante": {
+          "type": "string"
+        },
+        "vDescDI": {
+          "type": "number"
+        },
+        "nDraw": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "nSeqAdic",
+        "cFabricante"
+      ],
+      "additionalProperties": false,
+      "description": "Adição de uma **Declaração de Importação** (`<adi>`, I29, XSD §det/prod/DI/adi) — detalhe de cada adição da DI, **transcrita cega**. Grupo **repetido** (`maxOccurs=999` ao XSD). `nSeqAdic` (nº sequencial do item) e `cFabricante` (código do fabricante estrangeiro) obrigatórios; `nAdicao` (nº da adição), `vDescDI` (desconto **da adição** — não o `vDesc` da nota) e `nDraw` (nº do ato concessório de drawback) opcionais. Patterns/tetos ao XSD. Nada agrega/soma/confere."
+    },
+    "DetalheExportacao": {
+      "type": "object",
+      "properties": {
+        "nDraw": {
+          "type": "string"
+        },
+        "exportInd": {
+          "$ref": "#/definitions/ExportacaoIndireta"
+        }
+      },
+      "additionalProperties": false,
+      "description": "**Detalhe da exportação** (`<detExport>`, I50, XSD §det/prod/detExport) — documenta o ato de exportação de um item, **transcrito cego**. Grupo **repetido** (`maxOccurs=500` ao XSD): N `<detExport>` irmãos na ordem do array. `nDraw` (nº do ato concessório de drawback) opcional + o sub-grupo opcional `exportInd` (`ExportacaoIndireta`, exportação indireta). Nada agrega/soma/confere."
+    },
+    "ExportacaoIndireta": {
+      "type": "object",
+      "properties": {
+        "nRE": {
+          "type": "string"
+        },
+        "chNFe": {
+          "type": "string"
+        },
+        "qExport": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "nRE",
+        "chNFe",
+        "qExport"
+      ],
+      "additionalProperties": false,
+      "description": "**Exportação indireta** (`<exportInd>`, I52, XSD §det/prod/detExport/exportInd) — sub-grupo opcional do `detExport` para exportação via trading/terceiro, **transcrita cega**. `nRE` (registro de exportação), `chNFe` (chave de acesso, 44 díg., `TChNFe`) e `qExport` (quantidade efetivamente exportada) obrigatórios quando o grupo existe. A validação do pattern de `chNFe` (e o dígito verificador) fica com o XSD. Presence-driven: ausente ⇒ omitido."
+    },
+    "Rastro": {
+      "type": "object",
+      "properties": {
+        "nLote": {
+          "type": "string"
+        },
+        "qLote": {
+          "type": "number"
+        },
+        "dFab": {
+          "type": "string"
+        },
+        "dVal": {
+          "type": "string"
+        },
+        "cAgreg": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "nLote",
+        "qLote",
+        "dFab",
+        "dVal"
+      ],
+      "additionalProperties": false,
+      "description": "Item de **rastreabilidade** (`<rastro>`, I80) do `prod` — lote, validade e agregação, **transcrito cego**. Essencial para farmácia e perecíveis. Grupo **repetido** (`maxOccurs=500` ao XSD). `nLote`/`qLote`/`dFab`/`dVal` obrigatórios quando o grupo existe; `cAgreg` (código de agregação/SSCC) opcional. As datas são data-calendário `'AAAA-MM-DD'` (string, sem fuso, como `dVenc`); `qLote` é quantidade (3 casas, `TDec_0803v`)."
+    },
+    "Medicamento": {
+      "type": "object",
+      "properties": {
+        "cProdANVISA": {
+          "type": "string"
+        },
+        "xMotivoIsencao": {
+          "type": "string"
+        },
+        "vPMC": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "cProdANVISA",
+        "vPMC"
+      ],
+      "additionalProperties": false,
+      "description": "Vertical **`med`** (medicamentos/matérias-primas farmacêuticas, XSD §`med`) do `prod` — uma das verticais do detalhamento do produto. **Transcrita**: `cProdANVISA` (registro ANVISA, 11/13 dígitos, ou o literal `ISENTO`) + `vPMC` (preço máximo ao consumidor) obrigatórios; `xMotivoIsencao` opcional, mas **exigido** quando `cProdANVISA = 'ISENTO'` (única invariante inline — `requires`, regra de negócio que o XSD não expressa). O pattern de `cProdANVISA` fica com o XSD. A exclusividade do `xs:choice` (no máx. uma vertical por item) é deixada ao XSD."
+    },
+    "Combustivel": {
+      "type": "object",
+      "properties": {
+        "cProdANP": {
+          "type": "string"
+        },
+        "descANP": {
+          "type": "string"
+        },
+        "pGLP": {
+          "type": "number"
+        },
+        "pGNn": {
+          "type": "number"
+        },
+        "pGNi": {
+          "type": "number"
+        },
+        "vPart": {
+          "type": "number"
+        },
+        "CODIF": {
+          "type": "string"
+        },
+        "qTemp": {
+          "type": "number"
+        },
+        "UFCons": {
+          "type": "string"
+        },
+        "CIDE": {
+          "$ref": "#/definitions/CIDECombustivel"
+        },
+        "encerrante": {
+          "$ref": "#/definitions/EncerranteCombustivel"
+        },
+        "pBio": {
+          "type": "number"
+        },
+        "origComb": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/OrigemCombustivel"
+          }
+        }
+      },
+      "required": [
+        "cProdANP",
+        "descANP",
+        "UFCons"
+      ],
+      "additionalProperties": false,
+      "description": "Vertical **`comb`** (combustíveis líquidos, XSD §`comb`) do `prod` — uma das verticais do detalhamento do produto. **Transcrita cega**: escalares `cProdANP`/`descANP`/`UFCons` obrigatórios e `pGLP`/`pGNn`/`pGNi`/`vPart`/`CODIF`/`qTemp`/`pBio` opcionais; os sub-grupos `CIDE`/`encerrante` (presence- driven) e N `origComb` (array). **Nenhuma** conferência de conta fechada (CIDE é detalhe do `prod`, fora do eixo `imposto`/`ICMSTot`). A exclusividade do `xs:choice` (no máx. uma vertical por item) é deixada ao XSD."
+    },
+    "CIDECombustivel": {
+      "type": "object",
+      "properties": {
+        "qBCProd": {
+          "type": "number"
+        },
+        "vAliqProd": {
+          "type": "number"
+        },
+        "vCIDE": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "qBCProd",
+        "vAliqProd",
+        "vCIDE"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`CIDE`** (Contribuição de Intervenção no Domínio Econômico) da vertical `comb` — detalhe do `prod`, **fora** do eixo `imposto`/`ICMSTot`. **Transcrição cega**: `vCIDE` sai tal como enviado, **sem** conferência de `qBCProd × vAliqProd` (espelha `retTransp`: a conta da CIDE é do emitente). Presence- driven: ausente ⇒ `<CIDE>` omitido. Nada agrega a `total`/`ICMSTot`."
+    },
+    "EncerranteCombustivel": {
+      "type": "object",
+      "properties": {
+        "nBico": {
+          "type": "string"
+        },
+        "nBomba": {
+          "type": "string"
+        },
+        "nTanque": {
+          "type": "string"
+        },
+        "vEncIni": {
+          "type": "number"
+        },
+        "vEncFin": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "nBico",
+        "nTanque",
+        "vEncIni",
+        "vEncFin"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`encerrante`** da vertical `comb` — leitura da bomba no abastecimento (NFCe de posto). Transcrito: `nBico`/`nTanque`/`vEncIni`/`vEncFin` obrigatórios, `nBomba` opcional. Presence-driven: ausente ⇒ `<encerrante>` omitido."
+    },
+    "OrigemCombustivel": {
+      "type": "object",
+      "properties": {
+        "indImport": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ]
+        },
+        "cUFOrig": {
+          "type": "string"
+        },
+        "pOrig": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "indImport",
+        "cUFOrig",
+        "pOrig"
+      ],
+      "additionalProperties": false,
+      "description": "Item **`origComb`** (origem do combustível) da vertical `comb` — grupo **repetido** (`maxOccurs=30` ao XSD). Transcrito: `indImport` (`0`=Nacional, `1`=Importado), `cUFOrig` (código IBGE da UF) e `pOrig` (percentual originário) obrigatórios."
+    },
+    "VeiculoNovo": {
+      "type": "object",
+      "properties": {
+        "tpOp": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ]
+        },
+        "chassi": {
+          "type": "string"
+        },
+        "cCor": {
+          "type": "string"
+        },
+        "xCor": {
+          "type": "string"
+        },
+        "pot": {
+          "type": "string"
+        },
+        "cilin": {
+          "type": "string"
+        },
+        "pesoL": {
+          "type": "string"
+        },
+        "pesoB": {
+          "type": "string"
+        },
+        "nSerie": {
+          "type": "string"
+        },
+        "tpComb": {
+          "type": "string"
+        },
+        "nMotor": {
+          "type": "string"
+        },
+        "CMT": {
+          "type": "string"
+        },
+        "dist": {
+          "type": "string"
+        },
+        "anoMod": {
+          "type": "string"
+        },
+        "anoFab": {
+          "type": "string"
+        },
+        "tpPint": {
+          "type": "string"
+        },
+        "tpVeic": {
+          "type": "string"
+        },
+        "espVeic": {
+          "type": "string"
+        },
+        "VIN": {
+          "type": "string",
+          "enum": [
+            "R",
+            "N"
+          ]
+        },
+        "condVeic": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3"
+          ]
+        },
+        "cMod": {
+          "type": "string"
+        },
+        "cCorDENATRAN": {
+          "type": "string"
+        },
+        "lota": {
+          "type": "string"
+        },
+        "tpRest": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "9"
+          ]
+        }
+      },
+      "required": [
+        "tpOp",
+        "chassi",
+        "cCor",
+        "xCor",
+        "pot",
+        "cilin",
+        "pesoL",
+        "pesoB",
+        "nSerie",
+        "tpComb",
+        "nMotor",
+        "CMT",
+        "dist",
+        "anoMod",
+        "anoFab",
+        "tpPint",
+        "tpVeic",
+        "espVeic",
+        "VIN",
+        "condVeic",
+        "cMod",
+        "cCorDENATRAN",
+        "lota",
+        "tpRest"
+      ],
+      "additionalProperties": false,
+      "description": "Vertical **`veicProd`** (veículos novos — concessionária, XSD §`veicProd`) do `prod` — uma das verticais do detalhamento do produto. **Transcrita cega**: grupo chato de 24 campos, todos obrigatórios quando a vertical existe. Enums (`tpOp`/`VIN`/`condVeic`/`tpRest`) e patterns (`chassi` `[A-Z0-9]{17}`, `anoMod`/`anoFab` `[0-9]{4}`, `cMod`/`lota`/etc.) ficam com o XSD; **sem** cross-field inline. A exclusividade do `xs:choice` (no máx. uma vertical por item) é deixada ao XSD."
+    },
+    "Armamento": {
+      "type": "object",
+      "properties": {
+        "tpArma": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ]
+        },
+        "nSerie": {
+          "type": "string"
+        },
+        "nCano": {
+          "type": "string"
+        },
+        "descr": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tpArma",
+        "nSerie",
+        "nCano",
+        "descr"
+      ],
+      "additionalProperties": false,
+      "description": "Vertical **`arma`** (armamentos — loja de armas, XSD §`arma`) do `prod` — única vertical que **repete** (`maxOccurs=500` ao XSD), modelada como array. **Transcrita cega**: `tpArma` (`0`=uso permitido, `1`=uso restrito), `nSerie` (número de série da arma), `nCano` (número de série do cano) e `descr` (descrição completa) obrigatórios. O teto `maxOccurs` fica com o XSD."
+    },
+    "ImpostoData": {
+      "type": "object",
+      "properties": {
+        "vTotTrib": {
+          "type": "number",
+          "description": "Valor estimado total de tributos do **item** (`det/imposto/vTotTrib`, M02) — Lei da Transparência (Lei 12.741/2012). **Transcrito**(NCM × UF) e entrega o valor pronto. Opcional e independente do `vTotTrib` do total (`documento.total.vTotTrib`): ausente ⇒ omitido. **Não** soma ao `vNF` (estimativa informativa fora da regra W16) e **não** dispara conferência (sem conta fechada)."
+        },
+        "ICMS": {
+          "$ref": "#/definitions/IcmsClassificacao",
+          "description": "ICMS do item — **opcional**: obrigatório no item de **mercadoria**, **ausente** no item de **serviço** (que carrega `ISSQN` no lugar). A `xs:choice` ICMS-xor-ISSQN é deixada ao XSD: item sem nenhum dos dois, ou com ambos, é rejeitado pelo XSD."
+        },
+        "IPI": {
+          "$ref": "#/definitions/IpiClassificacao"
+        },
+        "II": {
+          "$ref": "#/definitions/ImportacaoII",
+          "description": "II (Imposto de Importação, grupo P) — irmão presence-driven do `IPI`, entre `IPI` e `ISSQN` na sequência do XSD. Só no item de mercadoria importada; ausente ⇒ omitido. O `vII` agrega o `ICMSTot.vII` e soma ao `vNF`."
+        },
+        "ISSQN": {
+          "$ref": "#/definitions/IssqnClassificacao",
+          "description": "ISSQN do item de **serviço** (NF-e conjugada/) — irmão presence-driven do `ICMS`. Ausente ⇒ omitido."
+        },
+        "PIS": {
+          "$ref": "#/definitions/PisClassificacao"
+        },
+        "PISST": {
+          "$ref": "#/definitions/PisStClassificacao"
+        },
+        "COFINS": {
+          "$ref": "#/definitions/CofinsClassificacao"
+        },
+        "COFINSST": {
+          "$ref": "#/definitions/CofinsStClassificacao"
+        },
+        "ICMSUFDest": {
+          "$ref": "#/definitions/IcmsUfDest"
+        },
+        "IS": {
+          "$ref": "#/definitions/IsClassificacao"
+        },
+        "IBSCBS": {
+          "$ref": "#/definitions/IbsCbsClassificacao"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Imposto do item: **composição de tributos co-presentes**. `ICMS` sempre; `IPI`/`PIS`/ `COFINS`/`ICMSUFDest`/`IS`/`IBSCBS` opcionais (`minOccurs=0` no XSD), cada um selecionado/presente de forma independente. `IPI` (indústria) e `ICMSUFDest` (DIFAL interestadual) são transcritos; `IS`/`IBSCBS` são a camada da reforma, sob gate de data. Ordem do leiaute: ICMS → IPI → PIS → PISST → COFINS → COFINSST → ICMSUFDest → IS → IBSCBS. O `PISST`/`COFINSST` são grupos **irmãos** (com valor de ST) do `<PIS>`/`<COFINS>`, presence-driven e independentes entre si."
+    },
+    "IcmsClassificacao": {
+      "type": "object",
+      "properties": {
+        "orig": {
+          "type": "string"
+        },
+        "cst": {
+          "type": "string"
+        },
+        "csosn": {
+          "type": "string"
+        },
+        "proprio": {
+          "$ref": "#/definitions/IcmsProprio"
+        },
+        "fcp": {
+          "$ref": "#/definitions/IcmsFcp"
+        },
+        "st": {
+          "$ref": "#/definitions/IcmsSt"
+        },
+        "stFcp": {
+          "$ref": "#/definitions/IcmsStFcp",
+          "description": "FCP-ST \"para frente\" — sub-bloco compartilhado nos CST 10/30/70/90 e CSOSN 201/202/900. Soma ao `vNF`."
+        },
+        "diferimento": {
+          "$ref": "#/definitions/IcmsDiferimento",
+          "description": "Diferimento (CST 51) — bloco dedicado all-optional; agrega `vBC`/`vICMS`/`vFCP`, nada soma ao `vNF`."
+        },
+        "stRet": {
+          "$ref": "#/definitions/IcmsStRet"
+        },
+        "efetivo": {
+          "$ref": "#/definitions/IcmsEfetivo"
+        },
+        "deson": {
+          "$ref": "#/definitions/IcmsDeson"
+        },
+        "credSN": {
+          "$ref": "#/definitions/IcmsCredSN",
+          "description": "Crédito de ICMS do Simples Nacional (CSOSN 101/201, e 900 na 4b.2). Transcrito cego, não agrega total."
+        }
+      },
+      "required": [
+        "orig"
+      ],
+      "additionalProperties": false,
+      "description": "Classificação de ICMS do item,: `cst` xor `csosn` + `orig`. Os valores ficam **aninhados por bloco**(não calcula) e **confere** a conta fechada `vBC·p/100` como alerta (CONTEXT §Conferência). O CST 10 acrescenta `st` (sempre — transcrito cego) e `fcp` (condicional por presença); o CST 60 acrescenta `stRet` (ST retido anteriormente, cego) e `efetivo` (ICMS efetivo, conferido); `deson` cobre CST 20/40/90. No eixo **CSOSN** (Simples), o `st` é reusado nos CSOSN 201/202/203 e o `credSN` (crédito do Simples) entra nos CSOSN 101/201 (transcrito cego, não agrega)."
+    },
+    "IcmsProprio": {
+      "type": "object",
+      "properties": {
+        "modBC": {
+          "type": "string"
+        },
+        "vBC": {
+          "type": "number"
+        },
+        "pICMS": {
+          "type": "number"
+        },
+        "vICMS": {
+          "type": "number"
+        },
+        "pRedBC": {
+          "type": "number",
+          "description": "Percentual de redução da BC (CST 20 e, no superset, CST 90). Opcional: ausente nos CST 00/10."
+        }
+      },
+      "required": [
+        "modBC",
+        "vBC",
+        "pICMS",
+        "vICMS"
+      ],
+      "additionalProperties": false,
+      "description": "Bloco **`proprio`** do ICMS (tributação própria) — modalidade de BC, base, alíquota e **valor**, todos **transcritos**. Para o CST 00 (Normal, tributação integral) é o único bloco. A **presença** do bloco é o derivado do `Ctx`; `fcp`/`st`/`deson` entram por presença."
+    },
+    "IcmsFcp": {
+      "type": "object",
+      "properties": {
+        "vBCFCP": {
+          "type": "number"
+        },
+        "pFCP": {
+          "type": "number"
+        },
+        "vFCP": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "vBCFCP",
+        "pFCP",
+        "vFCP"
+      ],
+      "additionalProperties": false,
+      "description": "Bloco **`fcp`** do ICMS (Fundo de Combate à Pobreza próprio) — base, percentual e valor, **transcritos**. Opcional e **together** (todos ou nenhum): a presença do bloco é o derivado `temFCP` do `Ctx`. O `vFCP` tem **conta fechada** (`vBCFCP·pFCP/100`), conferida como alerta. Aparece nos CST 10/20/90 (e na cauda); o FCP **próprio** não soma ao `vNF` (embutido no preço, como o `vICMS`)."
+    },
+    "IcmsSt": {
+      "type": "object",
+      "properties": {
+        "modBCST": {
+          "type": "string"
+        },
+        "pMVAST": {
+          "type": "number"
+        },
+        "pRedBCST": {
+          "type": "number"
+        },
+        "vBCST": {
+          "type": "number"
+        },
+        "pICMSST": {
+          "type": "number"
+        },
+        "vICMSST": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "modBCST",
+        "vBCST",
+        "pICMSST",
+        "vICMSST"
+      ],
+      "additionalProperties": false,
+      "description": "Bloco **`st`** do ICMS (substituição tributária \"para frente\", CST 10/90) — **transcrito cego**(MVA, redução de BC ST, dedução do ICMS próprio), então NÃO confere `vICMSST`/`vBCST` — só os monta e agrega (`vBCST`→W05, `vICMSST`→W06). `modBCST` é a modalidade da BC; `pMVAST`/`pRedBCST` são opcionais (dependem da modalidade). O `vICMSST` é cobrado do destinatário, então **soma ao `vNF`** (regra W16)."
+    },
+    "IcmsStFcp": {
+      "type": "object",
+      "properties": {
+        "vBCFCPST": {
+          "type": "number"
+        },
+        "pFCPST": {
+          "type": "number"
+        },
+        "vFCPST": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "vBCFCPST",
+        "pFCPST",
+        "vFCPST"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-bloco **`stFcp`** do ICMS (FCP-ST \"para frente\") — Fundo de Combate à Pobreza **retido por substituição tributária**: `vBCFCPST` (base) + `pFCPST` (percentual) + `vFCPST` (valor), **transcritos**. Bloco compartilhado, opcional e **together** (todos ou nenhum): a presença é o derivado `temStFcp` do `Ctx`. Aparece nos **seis** grupos que o XSD prevê: CST 10/30/70/90 e CSOSN 201/202/900. O `vFCPST` tem **conta fechada** (`vBCFCPST·pFCPST/100`, conferida como alerta, simétrica ao `vFCP` próprio), **agrega** o total `ICMSTot.vFCPST` (W06a, via guarda `tagsICMS`) e **soma ao `vNF`** (cobrado do destinatário, por fora, como o ICMS-ST)."
+    },
+    "IcmsDiferimento": {
+      "type": "object",
+      "properties": {
+        "modBC": {
+          "type": "string"
+        },
+        "pRedBC": {
+          "type": "number"
+        },
+        "cBenefRBC": {
+          "type": "string"
+        },
+        "vBC": {
+          "type": "number"
+        },
+        "pICMS": {
+          "type": "number"
+        },
+        "vICMSOp": {
+          "type": "number"
+        },
+        "pDif": {
+          "type": "number"
+        },
+        "vICMSDif": {
+          "type": "number"
+        },
+        "vICMS": {
+          "type": "number"
+        },
+        "pFCPDif": {
+          "type": "number",
+          "description": "Trio FCP **diferido** (sub-sequência opcional do XSD §ICMS51): `pFCPDif`/`vFCPDif` together + `vFCPEfet` solto. Item-only."
+        },
+        "vFCPDif": {
+          "type": "number"
+        },
+        "vFCPEfet": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Bloco **`diferimento`** do ICMS (CST 51) — **bloco dedicado** (não reusa o `IcmsProprio`, cujos campos são obrigatórios; relaxá-los quebraria os CST 00/10/20/70). Todos os campos são **opcionais** (\"à critério de cada UF\" — o XSD os deixa `minOccurs=0`), **transcritos**(`vICMS = vICMSOp − vICMSDif`, não `vBC·pICMS/100` — conferência **cega por construção**, pois a conta fechada lê o `proprio`, ausente no CST 51). A agregação lê `vBC` (W03), `vICMS` efetivamente devido (W04) e — pelo bloco `fcp` reusado — `vFCP` (W04c) de `proprio ?? diferimento`; o resto (`vICMSOp`/`vICMSDif`/`pDif`/`cBenefRBC` + trio FCP-diferido) é **item-only** (sem campo no `ICMSTot`). **Nada soma ao `vNF`** (CST 51 não tem ST; o ICMS é por dentro). O FCP comum (`vBCFCP`/`pFCP`/`vFCP`) entra pelo bloco `fcp` reusado; aqui ficam só os campos próprios do diferimento + o trio FCP-diferido."
+    },
+    "IcmsStRet": {
+      "type": "object",
+      "properties": {
+        "vBCSTRet": {
+          "type": "number"
+        },
+        "pST": {
+          "type": "number"
+        },
+        "vICMSSubstituto": {
+          "type": "number"
+        },
+        "vICMSSTRet": {
+          "type": "number"
+        },
+        "vBCFCPSTRet": {
+          "type": "number"
+        },
+        "pFCPSTRet": {
+          "type": "number"
+        },
+        "vFCPSTRet": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "vBCSTRet",
+        "pST",
+        "vICMSSTRet"
+      ],
+      "additionalProperties": false,
+      "description": "`vBCSTRet`/`pST`/`vICMSSTRet` compõem o ST retido (o XSD os exige juntos quando o bloco existe); `vICMSSubstituto` é o ICMS próprio do substituto, opcional (XSD `minOccurs=0`). O FCP-ST retido (`vBCFCPSTRet`/`pFCPSTRet`/`vFCPSTRet`) é um sub-bloco opcional do XSD §ICMS60 — todos ou nenhum. O `vICMSSTRet` **não** soma ao `vNF` (cobrado antes)."
+    },
+    "IcmsEfetivo": {
+      "type": "object",
+      "properties": {
+        "pRedBCEfet": {
+          "type": "number"
+        },
+        "vBCEfet": {
+          "type": "number"
+        },
+        "pICMSEfet": {
+          "type": "number"
+        },
+        "vICMSEfet": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "pRedBCEfet",
+        "vBCEfet",
+        "pICMSEfet",
+        "vICMSEfet"
+      ],
+      "additionalProperties": false,
+      "description": "Bloco **`efetivo`** do ICMS (ICMS efetivo da operação, CST 60) — base, alíquota e valor efetivos da revenda, **transcritos**. Sub-bloco opcional do XSD §ICMS60. O `vICMSEfet` tem **conta fechada** (`vBCEfet·pICMSEfet/100`), conferida como alerta (CONTEXT §Conferência); `pRedBCEfet` é o percentual de redução da BC efetiva. Não soma ao `vNF` (informativo). Todos os campos são **obrigatórios quando o bloco é informado** — espelho do XSD §ICMS60: `pRedBCEfet` **não** é `minOccurs=0` (ao contrário do que o shape do grilling supunha) e o tipo `TDec_0302a04Opc` não aceita zero."
+    },
+    "IcmsDeson": {
+      "type": "object",
+      "properties": {
+        "vICMSDeson": {
+          "type": "number"
+        },
+        "motDesICMS": {
+          "type": "string"
+        },
+        "indDeduzDeson": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ]
+        }
+      },
+      "required": [
+        "vICMSDeson",
+        "motDesICMS"
+      ],
+      "additionalProperties": false,
+      "description": "Bloco **`deson`** do ICMS (desoneração) — `vICMSDeson` (valor do ICMS desonerado) + `motDesICMS` (motivo), **transcritos cegos**(`vICMSDeson` → W04a). Opcional e **together** (todos ou nenhum): a presença do bloco é o derivado `temDeson` do `Ctx`. Aparece nos CST 20/30/40/41/50/70 (e 90). O `motDesICMS` é código (vai direto à folha, como `modBC`); o conjunto válido de motivos varia por grupo no XSD (ICMS20: 3/9/12; ICMS40: 1/3/4/5/6/7/8/9/…). O **`indDeduzDeson`** é o 3º campo do `deson`, opcional, transcrito **cru** (flag `'0'|'1'`, sem transcrição monetária — gêmeo do `indSomaPISST`): com `'1'`, o `vICMSDeson` **deduz do `vNF`** (apenas nesse item); com `'0'`/ausente, o comportamento legado (não deduz) é preservado. O `ICMSTot.vICMSDeson` (W04a) soma **todos** os `vICMSDeson` independente do flag. Adicionado a todos os grupos com `deson` (CST 20/30/40/70/90)."
+    },
+    "IcmsCredSN": {
+      "type": "object",
+      "properties": {
+        "pCredSN": {
+          "type": "number"
+        },
+        "vCredICMSSN": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "pCredSN",
+        "vCredICMSSN"
+      ],
+      "additionalProperties": false,
+      "description": "Bloco **`credSN`** do crédito de ICMS do **Simples Nacional** (art. 23 da LC 123) — `pCredSN` (alíquota aplicável de cálculo do crédito) + `vCredICMSSN` (valor do crédito aproveitável pelo comprador), **transcritos cegos**. Único conceito novo do eixo CSOSN: aparece nos CSOSN 101/201 (obrigatório) e 900 (opcional), **sem análogo** em nenhum CST."
+    },
+    "IpiClassificacao": {
+      "type": "object",
+      "properties": {
+        "cEnq": {
+          "type": "string"
+        },
+        "CNPJProd": {
+          "type": "string"
+        },
+        "cSelo": {
+          "type": "string"
+        },
+        "qSelo": {
+          "type": "string"
+        },
+        "cst": {
+          "type": "string"
+        },
+        "vBC": {
+          "type": "number"
+        },
+        "pIPI": {
+          "type": "number"
+        },
+        "qUnid": {
+          "type": "number",
+          "description": "IPI por pauta: quantidade tributada por unidade, par `together` com `vUnid`. Preservado cru (não-monetário)."
+        },
+        "vUnid": {
+          "type": "number",
+          "description": "IPI por pauta: valor por unidade tributável, par `together` com `qUnid`."
+        },
+        "vIPI": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "cEnq",
+        "cst"
+      ],
+      "additionalProperties": false,
+      "description": "Classificação de **IPI** do item (XSD `TIpi`), **transcrita**. O envelope (`cEnq` obrigatório sempre, inclusive no IPINT; `CNPJProd`/`cSelo`/`qSelo` opcionais) é comum; o `cst` dirige a escolha **IPITrib × IPINT** (o discriminador é obrigatório porque o CST mora **dentro** do wrapper no XSD): CST 00/49/50/99 = **IPITrib** (tributado por alíquota — `vBC`/ `pIPI`/`vIPI`); CST 01–05/51–55 = **IPINT** (não-tributado, só `cst`+`cEnq`). Os valores (`vBC`/`pIPI`/ `vIPI`) só vêm no IPITrib — o IPINT nem os declara, coerência por construção (como o `ICMS40` isento). O `vIPI` é cobrado por fora: agrega o total **W12** e **soma ao `vNF`** (regra W16, como o ICMS-ST). A guarda `tagsIPI` impede que um `vIPI` anexado a um IPINT infle o W12. **Presence-driven** (`temIPI`), sem gate por `crt`. **IPI por pauta:** a *choice* interna do `IPITrib` ganha a segunda perna `qUnid`/`vUnid` (valor por unidade) como alternativa a `vBC`/`pIPI` — por isso os quatro são **opcionais** aqui. A **exclusividade** (exatamente um par) é deixada ao **XSD**, sem discriminador (não é dirigida por CST)(`[vBC,pIPI]` e `[qUnid,vUnid]`). A conta fechada do `vIPI` ganha o caminho por quantidade (`qUnid·vUnid`) ao lado do por alíquota (`vBC·pIPI/100`) — só um dispara. O `vIPIDevol` (devolução) é o grupo irmão `ImpostoDevol`, fora deste grupo."
+    },
+    "ImportacaoII": {
+      "type": "object",
+      "properties": {
+        "vBC": {
+          "type": "number"
+        },
+        "vDespAdu": {
+          "type": "number"
+        },
+        "vII": {
+          "type": "number"
+        },
+        "vIOF": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "vBC",
+        "vDespAdu",
+        "vII",
+        "vIOF"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo **`II`** (Imposto de Importação, XSD §det/imposto/II, grupo P) — **irmão presence-driven** do `<IPI>` no `imposto` do item de mercadoria importada, **transcrito cego**(base/despesas/imposto vêm prontos). `vBC` (base do II), `vDespAdu` (despesas aduaneiras), `vII` (Imposto de Importação) e `vIOF` (IOF da importação) — todos `TDec_1302`, obrigatórios quando o grupo existe. **O `vII` é a única peça que toca a apuração de totais**: agrega ao `ICMSTot.vII` (W11, por presença — espelha o `IS`, sem CST/guarda) e **soma ao `vNF`** (W16, por fora — como o `vIPI`/`vST`; fonte autoritativa ACBr `ValidarRegrasdeNegocio.pas:1044`), reacendendo o `vII` antes fixo em `0`. `vBC`/ `vDespAdu`/`vIOF` são **item-only** (sem campo no `ICMSTot`, sem efeito no `vNF`). Sem conta fechada (o grupo não traz alíquota). A exclusividade \"II só na ramificação de mercadoria da choice ICMS-xor-ISSQN\" é do XSD."
+    },
+    "IssqnClassificacao": {
+      "type": "object",
+      "properties": {
+        "vBC": {
+          "type": "number"
+        },
+        "vAliq": {
+          "type": "number"
+        },
+        "vISSQN": {
+          "type": "number"
+        },
+        "cMunFG": {
+          "type": "string"
+        },
+        "cListServ": {
+          "type": "string"
+        },
+        "vDeducao": {
+          "type": "number"
+        },
+        "vOutro": {
+          "type": "number"
+        },
+        "vDescIncond": {
+          "type": "number"
+        },
+        "vDescCond": {
+          "type": "number"
+        },
+        "vISSRet": {
+          "type": "number"
+        },
+        "indISS": {
+          "type": "string"
+        },
+        "cServico": {
+          "type": "string"
+        },
+        "cMun": {
+          "type": "string"
+        },
+        "cPais": {
+          "type": "string"
+        },
+        "nProcesso": {
+          "type": "string"
+        },
+        "indIncentivo": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "vBC",
+        "vAliq",
+        "vISSQN",
+        "cMunFG",
+        "cListServ",
+        "indISS",
+        "indIncentivo"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo **`ISSQN`** do item de serviço (NF-e conjugada, XSD §det/imposto/ISSQN/) — o imposto **municipal** sobre serviços, **transcrito**. Entra como **irmão presence-driven** do `<ICMS>` no item: a `xs. A alíquota `vAliq` (`TDec_0302a04`) é **preservada** (2–4 casas via `DeVar`); os monetários arredondam à folha. `vBC`/`vAliq`/`vISSQN`/`cMunFG`/ `cListServ`/`indISS`/`indIncentivo` são obrigatórios; a cauda (`vDeducao`/`vOutro`/`vDescIncond`/`vDescCond`/ `vISSRet`/`cServico`/`cMun`/`cPais`/`nProcesso`) é opcional. Campos na ordem do XSD."
+    },
+    "PisClassificacao": {
+      "type": "object",
+      "properties": {
+        "cst": {
+          "type": "string"
+        },
+        "vBC": {
+          "type": "number"
+        },
+        "pPIS": {
+          "type": "number"
+        },
+        "qBCProd": {
+          "type": "number"
+        },
+        "vAliqProd": {
+          "type": "number"
+        },
+        "vPIS": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "cst"
+      ],
+      "additionalProperties": false,
+      "description": "Classificação de **PIS** do item,: `cst` + base + valor (`vPIS`), cobrindo **todos os ramos do choice** `<PIS>` do XSD 4.00. **DTO achatado** (sem aninhamento por bloco — os ramos são exclusivos e rasos): só o `cst` é obrigatório; os demais campos são **opcionais** e quais são exigidos em cada ramo é deixado ao **XSD**, sem invariante inline. `vBC`/`pPIS` servem a `Aliq` e à base por percentual do `Outr`; `qBCProd`/`vAliqProd` servem a `Qtde` e à base por quantidade do `Outr`; o `vPIS` está ausente no `NT` (só-CST, sem valor)."
+    },
+    "PisStClassificacao": {
+      "type": "object",
+      "properties": {
+        "vBC": {
+          "type": "number"
+        },
+        "pPIS": {
+          "type": "number"
+        },
+        "qBCProd": {
+          "type": "number"
+        },
+        "vAliqProd": {
+          "type": "number"
+        },
+        "vPIS": {
+          "type": "number"
+        },
+        "indSomaPISST": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ]
+        }
+      },
+      "required": [
+        "vPIS"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo **`PISST`** (substituição tributária do PIS **com valor**, XSD `<PISST>`.2) — **grupo irmão** do `<PIS>` (não um ramo do choice dele), **sem `CST` interno**. **transcrito**(`indTot=1`) — **soma o `vPIS` ao `vNF`** (regra W16, como o ICMS-ST/IPI). **Não** entra no `ICMSTot.vPIS` (W13) — não há campo `vPISST` no total. `vPIS` é **obrigatório** (REQ no XSD). `indSomaPISST` (`'0'|'1'`) é opcional e vai **cru** (flag string, sem transcrição monetária): ausente/`'0'` ⇒ não soma; só `'1'` soma. Presença pura (`temPISST`): ausente ⇒ `<PISST>` omitido."
+    },
+    "CofinsClassificacao": {
+      "type": "object",
+      "properties": {
+        "cst": {
+          "type": "string"
+        },
+        "vBC": {
+          "type": "number"
+        },
+        "pCOFINS": {
+          "type": "number"
+        },
+        "qBCProd": {
+          "type": "number"
+        },
+        "vAliqProd": {
+          "type": "number"
+        },
+        "vCOFINS": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "cst"
+      ],
+      "additionalProperties": false,
+      "description": "Classificação de **COFINS** do item (espelha `PisClassificacao`): `vCOFINS` **transcrito**."
+    },
+    "CofinsStClassificacao": {
+      "type": "object",
+      "properties": {
+        "vBC": {
+          "type": "number"
+        },
+        "pCOFINS": {
+          "type": "number"
+        },
+        "qBCProd": {
+          "type": "number"
+        },
+        "vAliqProd": {
+          "type": "number"
+        },
+        "vCOFINS": {
+          "type": "number"
+        },
+        "indSomaCOFINSST": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ]
+        }
+      },
+      "required": [
+        "vCOFINS"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo **`COFINSST`** (espelho literal do `PisStClassificacao`): `vCOFINS` REQ + `indSomaCOFINSST?` (`'0'|'1'`)."
+    },
+    "IcmsUfDest": {
+      "type": "object",
+      "properties": {
+        "vBCUFDest": {
+          "type": "number"
+        },
+        "vBCFCPUFDest": {
+          "type": "number"
+        },
+        "pFCPUFDest": {
+          "type": "number"
+        },
+        "vFCPUFDest": {
+          "type": "number"
+        },
+        "pICMSUFDest": {
+          "type": "number"
+        },
+        "pICMSInter": {
+          "type": "number"
+        },
+        "pICMSInterPart": {
+          "type": "number"
+        },
+        "vICMSUFDest": {
+          "type": "number"
+        },
+        "vICMSUFRemet": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "vBCUFDest",
+        "pICMSUFDest",
+        "pICMSInter",
+        "pICMSInterPart",
+        "vICMSUFDest",
+        "vICMSUFRemet"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo **`ICMSUFDest`** (DIFAL — partilha do ICMS interestadual a consumidor final não-contribuinte, XSD `ICMSUFDest`), **transcrito**. Grupo **flat**, **presença pura** (`temDifal`). O trio FCP-UF-dest (`vBCFCPUFDest`/`pFCPUFDest`/`vFCPUFDest`) é opcional e **together** (todos ou nenhum). Só o `vFCPUFDest` tem **conta fechada** (`vBCFCPUFDest·pFCPUFDest/100`, alerta); a partilha (`vICMSUFDest`/`vICMSUFRemet`) entra **cega**. Os três campos agregam no `ICMSTot` (entre `vICMSDeson` e `vFCP`) e **nenhum soma ao `vNF`** (partilha entre UFs, não valor da nota). Campos na ordem lógica (o FieldSpec impõe a do XSD)."
+    },
+    "IsClassificacao": {
+      "type": "object",
+      "properties": {
+        "CST": {
+          "type": "string"
+        },
+        "cClassTrib": {
+          "type": "string"
+        },
+        "vBC": {
+          "type": "number"
+        },
+        "pIS": {
+          "type": "number"
+        },
+        "vIS": {
+          "type": "number"
+        },
+        "pISEspec": {
+          "type": "number",
+          "description": "Alíquota do IS por valor (específica), opcional depois de `pIS`. XSD `pISEspec` (`TDec_0302_04RTC`)."
+        },
+        "uTrib": {
+          "type": "string",
+          "description": "Unidade de medida da apuração do IS, par opcional com `qTrib`. XSD `uTrib` (1–6 caracteres)."
+        },
+        "qTrib": {
+          "type": "number",
+          "description": "Quantidade de apuração do IS na `uTrib`, par opcional com `uTrib`. XSD `qTrib` (`TDec_1104OpRTC`)."
+        }
+      },
+      "required": [
+        "CST",
+        "cClassTrib",
+        "vBC",
+        "pIS",
+        "vIS"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo `IS` (Imposto Seletivo) do item (XSD `TIS`), **transcrito**: `CST`/`cClassTrib` do IS + base/alíquota/valor. Presence-driven sob o mesmo gate de data da reforma; **não** é obrigatório (incide só sobre bens/serviços específicos), então ausente não gera issue. Tags: `CSTIS`/`cClassTribIS`/ `vBCIS`/`pIS`/`vIS`. `pISEspec` (alíquota por valor, opcional depois de `pIS`) e o par `uTrib`/`qTrib` (unidade de medida + quantidade de apuração do IS, sequência opcional) são campos opcionais do `TIS`, transcritos crus e **total-neutros** (o `ISTot` só tem `vIS`, já agregado). Ausentes ⇒ omitidos."
+    },
+    "IbsCbsClassificacao": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/IbsCbsClassificacaoNormal"
+        },
+        {
+          "$ref": "#/definitions/IbsCbsClassificacaoMono"
+        },
+        {
+          "$ref": "#/definitions/IbsCbsClassificacaoTransf"
+        },
+        {
+          "$ref": "#/definitions/IbsCbsClassificacaoAjuste"
+        }
+      ],
+      "description": "Grupo `IBSCBS` do item (XSD `TTribNFe`), **transcrito**: `CST`/`cClassTrib` da reforma (+ o ride-along opcional `indDoacao`) + **exatamente um** ramo da choice — `gIBSCBS` (tributação normal) **xor** `gIBSCBSMono` (monofasia, CST 620) **xor** `gTransfCred` (transferência de crédito, CST 800) **xor** `gAjusteCompet` (ajuste de competência, CST 811). A *choice* do XSD é modelada como **união discriminada** (cada variante proíbe os demais ramos via `?: never`), então o contrato tipado não admite \"nenhum ramo\" nem \"ambos\"(o XSD amarra a choice ao CST). Os demais ramos (crédito presumido etc.) entram por replicação."
+    },
+    "IbsCbsClassificacaoNormal": {
+      "type": "object",
+      "properties": {
+        "CST": {
+          "type": "string"
+        },
+        "cClassTrib": {
+          "type": "string"
+        },
+        "indDoacao": {
+          "type": "string",
+          "const": "1"
+        },
+        "gEstornoCred": {
+          "$ref": "#/definitions/IbsCbsEstornoCred"
+        },
+        "gCredPresOper": {
+          "$ref": "#/definitions/IbsCbsCredPresOper"
+        },
+        "gCredPresIBSZFM": {
+          "$ref": "#/definitions/IbsCbsCredPresZFM"
+        },
+        "gIBSCBS": {
+          "$ref": "#/definitions/IbsCbsValores"
+        }
+      },
+      "required": [
+        "CST",
+        "cClassTrib",
+        "gIBSCBS"
+      ],
+      "additionalProperties": false,
+      "description": "Ramo **normal** da choice: `gIBSCBS` presente, os demais ramos proibidos (`?: never`)."
+    },
+    "IbsCbsEstornoCred": {
+      "type": "object",
+      "properties": {
+        "vIBSEstCred": {
+          "type": "number"
+        },
+        "vCBSEstCred": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "vIBSEstCred",
+        "vCBSEstCred"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gEstornoCred`** (XSD `TEstornoCred`) — **estorno de crédito** de IBS/CBS: `vIBSEstCred` (valor do IBS a estornar) + `vCBSEstCred` (CBS a estornar), **transcritos**. Sub-grupo da raiz do `IBSCBS` (irmão do CST, depois da choice de ramo). **Carrega valor**: ganha um **bloco próprio** `gEstornoCred` no fim do `IBSCBSTot` (presence-driven, como o `gMono`), agregando os dois valores. Presence-driven: informado ⇒ emite e soma; ausente ⇒ omitido e o bloco do total não sai."
+    },
+    "IbsCbsCredPresOper": {
+      "type": "object",
+      "properties": {
+        "vBCCredPres": {
+          "type": "number"
+        },
+        "cCredPres": {
+          "type": "string"
+        },
+        "gIBSCredPres": {
+          "$ref": "#/definitions/IbsCbsCredPres"
+        },
+        "gCBSCredPres": {
+          "$ref": "#/definitions/IbsCbsCredPres"
+        }
+      },
+      "required": [
+        "vBCCredPres",
+        "cCredPres"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gCredPresOper`** (XSD `TCredPresOper`) — **crédito presumido da operação**: base (`vBCCredPres`) + código de classificação (`cCredPres`) + os grupos por natureza `gIBSCredPres`/`gCBSCredPres` (`IbsCbsCredPres`), **opcionais** (o crédito pode incidir só sobre o IBS, só sobre a CBS, ou ambos). **Transcrito**. O `vCredPres`/`vCredPresCondSus` de cada natureza **agrega** ao `IBSCBSTot` (em `gIBS`/`gCBS` conforme tenha `gIBSCredPres`/`gCBSCredPres`, na coluna `vCredPres` ou `vCredPresCondSus` conforme a choice). Sub-grupo da raiz do `IBSCBS` (irmão do CST, depois da choice de ramo) — mutuamente exclusivo com o `IbsCbsCredPresZFM` (a choice de crédito presumido do `TTribNFe`)."
+    },
+    "IbsCbsCredPres": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "pCredPres": {
+              "type": "number"
+            },
+            "vCredPres": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "pCredPres",
+            "vCredPres"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "pCredPres": {
+              "type": "number"
+            },
+            "vCredPresCondSus": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "pCredPres",
+            "vCredPresCondSus"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "Sub-grupo **`gIBSCredPres`/`gCBSCredPres`** (XSD `TCredPres`) do crédito presumido da operação: `pCredPres` (percentual) + a **choice** `vCredPres` **xor** `vCredPresCondSus` (valor do crédito; o segundo só para `cCredPres` com indicação de condição suspensiva). Modelada como **união discriminada** (cada variante proíbe o outro valor via `?: never`), espelhando a choice do XSD — o total agrega `vCredPres` ou `vCredPresCondSus` conforme a variante. Tudo **transcrito**."
+    },
+    "IbsCbsCredPresZFM": {
+      "type": "object",
+      "properties": {
+        "competApur": {
+          "type": "string"
+        },
+        "tpCredPresIBSZFM": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4"
+          ]
+        },
+        "vCredPresIBSZFM": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "competApur",
+        "tpCredPresIBSZFM",
+        "vCredPresIBSZFM"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gCredPresIBSZFM`** (XSD `TCredPresIBSZFM`) — **crédito presumido de IBS da ZFM** (fornecimento a partir da Zona Franca de Manaus, art. 450 §1º LC 214/25): `competApur` (AAAA-MM) + `tpCredPresIBSZFM` (classificação do percentual, enum `0`–`4`) + `vCredPresIBSZFM` (valor calculado sobre o saldo devedor). **Transcrito**; o `vCredPresIBSZFM` **agrega** em `gIBS.vCredPres` do `IBSCBSTot` (crédito de IBS por natureza). Mutuamente exclusivo com o `IbsCbsCredPresOper`."
+    },
+    "IbsCbsValores": {
+      "type": "object",
+      "properties": {
+        "vBC": {
+          "type": "number"
+        },
+        "gIBSUF": {
+          "$ref": "#/definitions/IbsCbsTributo"
+        },
+        "gIBSMun": {
+          "$ref": "#/definitions/IbsCbsTributo"
+        },
+        "vIBS": {
+          "type": "number"
+        },
+        "gCBS": {
+          "$ref": "#/definitions/IbsCbsTributo"
+        },
+        "gTribRegular": {
+          "$ref": "#/definitions/IbsCbsTribRegular",
+          "description": "`gTribRegular` (XSD `TTribRegular`): tributação regular de referência no fim do `TCIBS`. Total-neutro."
+        },
+        "gTribCompraGov": {
+          "$ref": "#/definitions/IbsCbsTribCompraGov",
+          "description": "`gTribCompraGov` (XSD `TTribCompraGov`): composição do IBS/CBS na compra governamental, no fim do `TCIBS`. Total-neutro."
+        }
+      },
+      "required": [
+        "vBC",
+        "gIBSUF",
+        "gIBSMun",
+        "vIBS",
+        "gCBS"
+      ],
+      "additionalProperties": false,
+      "description": "O caminho de tributação normal da reforma; monofasia/transferência/ajuste (demais ramos do choice do `TTribNFe`) entram por replicação em"
+    },
+    "IbsCbsTributo": {
+      "type": "object",
+      "properties": {
+        "p": {
+          "type": "number"
+        },
+        "v": {
+          "type": "number"
+        },
+        "gDif": {
+          "$ref": "#/definitions/IbsCbsDiferimento"
+        },
+        "gDevTrib": {
+          "$ref": "#/definitions/IbsCbsDevolucao"
+        },
+        "gRed": {
+          "$ref": "#/definitions/IbsCbsReducao"
+        }
+      },
+      "required": [
+        "p",
+        "v"
+      ],
+      "additionalProperties": false,
+      "description": "IBS/CBS por competência (`gIBSUF`/`gIBSMun`/`gCBS`): alíquota (`pIBSUF`/`pIBSMun`/`pCBS`) + valor (`vIBSUF`/`vIBSMun`/`vCBS`). Ambos **transcritos**. Os sub-grupos `gDif`/`gDevTrib` (diferimento/devolução) e `gRed` (redução de alíquota) são **opcionais e por-competência**(fiel ao XSD). `gRed` é total-neutro; `gDif`/`gDevTrib` agregam `vDif`/`vDevTrib` ao `IBSCBSTot`."
+    },
+    "IbsCbsDiferimento": {
+      "type": "object",
+      "properties": {
+        "pDif": {
+          "type": "number"
+        },
+        "vDif": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "pDif",
+        "vDif"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gDif`** (XSD `TDif`) de uma competência do IBS/CBS — **diferimento** (operação B2B industrial): `pDif` (percentual diferido) + `vDif` (valor do diferimento), **transcritos**. Diferente do `IbsCbsReducao`, **carrega valor**: o `vDif` **agrega** ao `IBSCBSTot` (por-competência, guardado por `tagsIBSCBS`). Presence-driven por competência; ausente ⇒ omitido e o termo conta 0."
+    },
+    "IbsCbsDevolucao": {
+      "type": "object",
+      "properties": {
+        "vDevTrib": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "vDevTrib"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gDevTrib`** (XSD `TDevTrib`) de uma competência do IBS/CBS — **devolução de tributo** (fornecimento de energia/água/esgoto/gás): só `vDevTrib` (valor do tributo devolvido), **transcrito**. Como o `IbsCbsDiferimento`, **carrega valor**: o `vDevTrib` **agrega** ao `IBSCBSTot` por-competência. Presence-driven: informado ⇒ emite `<gDevTrib>` e soma; ausente ⇒ omitido e o termo conta 0."
+    },
+    "IbsCbsReducao": {
+      "type": "object",
+      "properties": {
+        "pRedAliq": {
+          "type": "number"
+        },
+        "pAliqEfet": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "pRedAliq",
+        "pAliqEfet"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gRed`** (XSD `TRed`) de uma competência do IBS/CBS — **redução de alíquota** (cesta básica/saúde): `pRedAliq` (percentual de redução da alíquota do `cClassTrib`) + `pAliqEfet` (alíquota efetiva aplicada à BC), **ambos**transcritos**. É **total-neutro**: só percentuais, nenhum campo de valor — não agrega ao `IBSCBSTot`. Presence-driven; ausente ⇒ omitido."
+    },
+    "IbsCbsTribRegular": {
+      "type": "object",
+      "properties": {
+        "CSTReg": {
+          "type": "string"
+        },
+        "cClassTribReg": {
+          "type": "string"
+        },
+        "pAliqEfetRegIBSUF": {
+          "type": "number"
+        },
+        "vTribRegIBSUF": {
+          "type": "number"
+        },
+        "pAliqEfetRegIBSMun": {
+          "type": "number"
+        },
+        "vTribRegIBSMun": {
+          "type": "number"
+        },
+        "pAliqEfetRegCBS": {
+          "type": "number"
+        },
+        "vTribRegCBS": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "CSTReg",
+        "cClassTribReg",
+        "pAliqEfetRegIBSUF",
+        "vTribRegIBSUF",
+        "pAliqEfetRegIBSMun",
+        "vTribRegIBSMun",
+        "pAliqEfetRegCBS",
+        "vTribRegCBS"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gTribRegular`** (XSD `TTribRegular`) no fim do `gIBSCBS` (`TCIBS`) — **tributação regular de referência**: o CST/cClassTrib e as alíquotas/valores que **seriam** devidos caso não cumprida a condição resolutória/suspensiva (ZFM/ALC art. 442 §4º, suspensão), **transcritos**. É **total-neutro** (referência, sem campo de total dedicado — espelha o `IbsCbsReducao`): não agrega ao `IBSCBSTot`. Presence-driven: informado ⇒ emite `<gTribRegular>`; ausente ⇒ omitido."
+    },
+    "IbsCbsTribCompraGov": {
+      "type": "object",
+      "properties": {
+        "pAliqIBSUF": {
+          "type": "number"
+        },
+        "vTribIBSUF": {
+          "type": "number"
+        },
+        "pAliqIBSMun": {
+          "type": "number"
+        },
+        "vTribIBSMun": {
+          "type": "number"
+        },
+        "pAliqCBS": {
+          "type": "number"
+        },
+        "vTribCBS": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "pAliqIBSUF",
+        "vTribIBSUF",
+        "pAliqIBSMun",
+        "vTribIBSMun",
+        "pAliqCBS",
+        "vTribCBS"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gTribCompraGov`** (XSD `TTribCompraGov`) no fim do `gIBSCBS` (`TCIBS`) — **composição do IBS/CBS na compra governamental**: as alíquotas (`pAliqIBSUF`/`pAliqIBSMun`/`pAliqCBS`) e os valores (`vTribIBSUF`/`vTribIBSMun`/`vTribCBS`) que **seriam** devidos sem a aplicação do art. 473 da LC 214/2025, **transcritos**. É **total-neutro** (valores de referência, sem campo de total dedicado — espelha o `IbsCbsTribRegular` / `IbsCbsReducao`): não agrega ao `IBSCBSTot`. Presence-driven: informado ⇒ emite `<gTribCompraGov>`; ausente ⇒ omitido."
+    },
+    "IbsCbsClassificacaoMono": {
+      "type": "object",
+      "properties": {
+        "CST": {
+          "type": "string"
+        },
+        "cClassTrib": {
+          "type": "string"
+        },
+        "indDoacao": {
+          "type": "string",
+          "const": "1"
+        },
+        "gEstornoCred": {
+          "$ref": "#/definitions/IbsCbsEstornoCred"
+        },
+        "gCredPresOper": {
+          "$ref": "#/definitions/IbsCbsCredPresOper"
+        },
+        "gCredPresIBSZFM": {
+          "$ref": "#/definitions/IbsCbsCredPresZFM"
+        },
+        "gIBSCBSMono": {
+          "$ref": "#/definitions/IbsCbsMonofasia"
+        }
+      },
+      "required": [
+        "CST",
+        "cClassTrib",
+        "gIBSCBSMono"
+      ],
+      "additionalProperties": false,
+      "description": "Ramo **monofásico** da choice (CST 620): `gIBSCBSMono` presente, os demais ramos proibidos (`?: never`)."
+    },
+    "IbsCbsMonofasia": {
+      "type": "object",
+      "properties": {
+        "gMonoPadrao": {
+          "$ref": "#/definitions/IbsCbsMonoPadrao"
+        },
+        "gMonoReten": {
+          "$ref": "#/definitions/IbsCbsMonoReten",
+          "description": "`gMonoReten`: monofasia sujeita a retenção; os `v*MonoReten` agregam no `gMono` do total."
+        },
+        "gMonoRet": {
+          "$ref": "#/definitions/IbsCbsMonoRet",
+          "description": "`gMonoRet`: monofasia retida anteriormente; os `v*MonoRet` agregam no `gMono` do total."
+        },
+        "gMonoDif": {
+          "$ref": "#/definitions/IbsCbsMonoDif",
+          "description": "`gMonoDif`: diferimento da monofasia; total-neutro (sem campo no `gMono`)."
+        },
+        "vTotIBSMonoItem": {
+          "type": "number"
+        },
+        "vTotCBSMonoItem": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "gMonoPadrao",
+        "vTotIBSMonoItem",
+        "vTotCBSMonoItem"
+      ],
+      "additionalProperties": false,
+      "description": "Valores do `gIBSCBSMono` (XSD `TMonofasia`, CST 620): o ramo **monofásico** da choice do `TTribNFe`. Os três ramos opcionais entram na ordem do XSD (entre o `gMonoPadrao` e os totais de item), presence-driven. Mutuamente exclusivo com o `IbsCbsValores` (`gIBSCBS`) — a *choice* do XSD."
+    },
+    "IbsCbsMonoPadrao": {
+      "type": "object",
+      "properties": {
+        "qBCMono": {
+          "type": "number"
+        },
+        "adRemIBS": {
+          "type": "number"
+        },
+        "adRemCBS": {
+          "type": "number"
+        },
+        "vIBSMono": {
+          "type": "number"
+        },
+        "vCBSMono": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "qBCMono",
+        "adRemIBS",
+        "adRemCBS",
+        "vIBSMono",
+        "vCBSMono"
+      ],
+      "additionalProperties": false,
+      "description": "`gMonoPadrao` (XSD `TMonofasia`): a tributação monofásica **padrão** (combustível, CST 620), **transcrita** — quantidade tributada (`qBCMono`) + alíquotas ad rem (`adRemIBS`/`adRemCBS`, apuradas a montante) + os valores (`vIBSMono`/`vCBSMono`). Os ramos opcionais `gMonoReten`/`gMonoRet`/`gMonoDif` são irmãos deste no `IbsCbsMonofasia`."
+    },
+    "IbsCbsMonoReten": {
+      "type": "object",
+      "properties": {
+        "qBCMonoReten": {
+          "type": "number"
+        },
+        "adRemIBSReten": {
+          "type": "number"
+        },
+        "vIBSMonoReten": {
+          "type": "number"
+        },
+        "adRemCBSReten": {
+          "type": "number"
+        },
+        "vCBSMonoReten": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "qBCMonoReten",
+        "adRemIBSReten",
+        "vIBSMonoReten",
+        "adRemCBSReten",
+        "vCBSMonoReten"
+      ],
+      "additionalProperties": false,
+      "description": "**Carrega valor**: os dois `v*MonoReten` **agregam** no bloco `gMono` do `IBSCBSTot` (flip de `totZero`, como o `vIBSMono` da A.1). Os campos seguem a ordem **intercalada** do XSD (IBS antes da CBS por par). Presence-driven: ausente ⇒ omitido."
+    },
+    "IbsCbsMonoRet": {
+      "type": "object",
+      "properties": {
+        "qBCMonoRet": {
+          "type": "number"
+        },
+        "adRemIBSRet": {
+          "type": "number"
+        },
+        "vIBSMonoRet": {
+          "type": "number"
+        },
+        "adRemCBSRet": {
+          "type": "number"
+        },
+        "vCBSMonoRet": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "qBCMonoRet",
+        "adRemIBSRet",
+        "vIBSMonoRet",
+        "adRemCBSRet",
+        "vCBSMonoRet"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gMonoRet`** (XSD `TMonofasia` → `gMonoRet`) — **monofasia retida anteriormente** (revenda de combustível retido a montante): quantidade (`qBCMonoRet`) + ad rem (`adRemIBSRet`/`adRemCBSRet`) + valores (`vIBSMonoRet`/`vCBSMonoRet`), **transcritos**. **Carrega valor**: os dois `v*MonoRet` **agregam** no bloco `gMono` do `IBSCBSTot` (flip de `totZero`). Ordem intercalada do XSD. Presence-driven: ausente ⇒ omitido."
+    },
+    "IbsCbsMonoDif": {
+      "type": "object",
+      "properties": {
+        "pDifIBS": {
+          "type": "number"
+        },
+        "vIBSMonoDif": {
+          "type": "number"
+        },
+        "pDifCBS": {
+          "type": "number"
+        },
+        "vCBSMonoDif": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "pDifIBS",
+        "vIBSMonoDif",
+        "pDifCBS",
+        "vCBSMonoDif"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gMonoDif`** (XSD `TMonofasia` → `gMonoDif`) — **diferimento da monofasia**: percentuais diferidos (`pDifIBS`/`pDifCBS`) + os valores diferidos (`vIBSMonoDif`/`vCBSMonoDif`), **transcritos**. É **total-neutro** — não há campo de diferimento mono no `gMono` do total (espelha o `IbsCbsReducao`): transcrito, sem agregar. Ordem intercalada do XSD (IBS antes da CBS). Presence-driven: ausente ⇒ omitido."
+    },
+    "IbsCbsClassificacaoTransf": {
+      "type": "object",
+      "properties": {
+        "CST": {
+          "type": "string"
+        },
+        "cClassTrib": {
+          "type": "string"
+        },
+        "indDoacao": {
+          "type": "string",
+          "const": "1"
+        },
+        "gEstornoCred": {
+          "$ref": "#/definitions/IbsCbsEstornoCred"
+        },
+        "gCredPresOper": {
+          "$ref": "#/definitions/IbsCbsCredPresOper"
+        },
+        "gCredPresIBSZFM": {
+          "$ref": "#/definitions/IbsCbsCredPresZFM"
+        },
+        "gTransfCred": {
+          "$ref": "#/definitions/IbsCbsTransfCred"
+        }
+      },
+      "required": [
+        "CST",
+        "cClassTrib",
+        "gTransfCred"
+      ],
+      "additionalProperties": false,
+      "description": "Ramo **transferência de crédito** (CST 800): `gTransfCred` presente, os demais ramos proibidos (`?: never`)."
+    },
+    "IbsCbsTransfCred": {
+      "type": "object",
+      "properties": {
+        "vIBS": {
+          "type": "number"
+        },
+        "vCBS": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "vIBS",
+        "vCBS"
+      ],
+      "additionalProperties": false,
+      "description": "Só `vIBS`/`vCBS` (valor a transferir). **Transcrição pura sem agregação** (espelha o DIFAL): não há campo de total para crédito transferido, então o `IBSCBSTot` **não** soma estes valores — a guarda por `tagsIBSCBS` os exclui por construção (o ramo não declara o `vBC`/`vIBSUF`/… do ramo normal). Mutuamente exclusivo com os demais ramos da choice do `TTribNFe`."
+    },
+    "IbsCbsClassificacaoAjuste": {
+      "type": "object",
+      "properties": {
+        "CST": {
+          "type": "string"
+        },
+        "cClassTrib": {
+          "type": "string"
+        },
+        "indDoacao": {
+          "type": "string",
+          "const": "1"
+        },
+        "gEstornoCred": {
+          "$ref": "#/definitions/IbsCbsEstornoCred"
+        },
+        "gCredPresOper": {
+          "$ref": "#/definitions/IbsCbsCredPresOper"
+        },
+        "gCredPresIBSZFM": {
+          "$ref": "#/definitions/IbsCbsCredPresZFM"
+        },
+        "gAjusteCompet": {
+          "$ref": "#/definitions/IbsCbsAjusteCompet"
+        }
+      },
+      "required": [
+        "CST",
+        "cClassTrib",
+        "gAjusteCompet"
+      ],
+      "additionalProperties": false,
+      "description": "Ramo **ajuste de competência** (CST 811): `gAjusteCompet` presente, os demais ramos proibidos (`?: never`)."
+    },
+    "IbsCbsAjusteCompet": {
+      "type": "object",
+      "properties": {
+        "competApur": {
+          "type": "string"
+        },
+        "vIBS": {
+          "type": "number"
+        },
+        "vCBS": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "competApur",
+        "vIBS",
+        "vCBS"
+      ],
+      "additionalProperties": false,
+      "description": "Valores do `gAjusteCompet` (XSD `TAjusteCompet`, CST 811). `competApur` (ano-mês `AAAA-MM` do período de apuração) + `vIBS`/`vCBS`. Como o `IbsCbsTransfCred`, é **transcrição pura sem agregação** — não há campo de total para o ajuste. Mutuamente exclusivo com os demais ramos da choice do `TTribNFe`."
+    },
+    "ImpostoDevol": {
+      "type": "object",
+      "properties": {
+        "pDevol": {
+          "type": "number"
+        },
+        "vIPIDevol": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "pDevol",
+        "vIPIDevol"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo **`impostoDevol`** (XSD `det/impostoDevol`, UA01) — IPI **devolvido** em nota de devolução (`finNFe=4`) com não contribuintes do IPI: **irmão do `imposto`** no nível `det` (depois do `imposto`, antes do `infAdProd`). `pDevol` (percentual de mercadoria devolvida) + o sub-grupo `IPI/vIPIDevol` (valor do IPI devolvido), **transcritos cegos**. Presence-driven: informado ⇒ emite `<impostoDevol>`; ausente ⇒ omitido. O `vIPIDevol` **agrega** o `ICMSTot.vIPIDevol` (W12a) e **soma ao `vNF` de todos os itens** (incondicional — espelha o ACBr, não gated por `indTot`)."
+    },
+    "ObservacaoItem": {
+      "type": "object",
+      "properties": {
+        "obsCont": {
+          "$ref": "#/definitions/ObservacaoLivre"
+        },
+        "obsFisco": {
+          "$ref": "#/definitions/ObservacaoLivre"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Observações de uso livre do **item** (`<obsItem>`, VA01) — grupo opcional do `det` (irmão de `prod`/`imposto`), com `obsCont` (uso do contribuinte) e `obsFisco` (uso do fisco) **singulares** (`maxOccurs=1`, ao contrário do `infAdic` da nota, onde repetem). Cada um é uma `ObservacaoLivre`: nome do campo no **atributo** `xCampo` (canal de atributo), conteúdo no elemento `xTexto`. **Transcrito**; ausente ⇒ omitido."
+    },
+    "ObservacaoLivre": {
+      "type": "object",
+      "properties": {
+        "xCampo": {
+          "type": "string"
+        },
+        "xTexto": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "xCampo",
+        "xTexto"
+      ],
+      "additionalProperties": false,
+      "description": "Observação livre (`<obsCont>`/`<obsFisco>`, Z04/Z07) do `infAdic` — **campo de uso livre** do contribuinte ou do fisco. O nome do campo vai no **atributo** `xCampo` (canal de atributo) e o conteúdo no elemento `xTexto`. N por nota (`maxOccurs=10` ao XSD). **Transcrita**."
+    },
+    "Totais": {
+      "type": "object",
+      "additionalProperties": {},
+      "description": "Os totais são recalculados a partir dos itens; o que vem aqui serve de conferência e nunca substitui o calculado. Registro aberto de propósito."
+    },
+    "Transporte": {
+      "type": "object",
+      "properties": {
+        "modFrete": {
+          "type": "number",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            9
+          ]
+        },
+        "transporta": {
+          "$ref": "#/definitions/Transportadora"
+        },
+        "retTransp": {
+          "$ref": "#/definitions/RetencaoTransporte"
+        },
+        "veicTransp": {
+          "$ref": "#/definitions/Veiculo"
+        },
+        "reboque": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Veiculo"
+          }
+        },
+        "vagao": {
+          "type": "string"
+        },
+        "balsa": {
+          "type": "string"
+        },
+        "vol": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Volume"
+          }
+        }
+      },
+      "required": [
+        "modFrete"
+      ],
+      "additionalProperties": false,
+      "description": "Transporte (`<transp>`, X01) **completo**, aninhado e **transcrito**: `modFrete` (obrigatório) + sub-grupos por presença (`transporta`/`retTransp`/`veicTransp`) e repetidos (`reboque`/`vol`, com `lacres` `many` aninhado no `vol`). A **exclusividade modal** (`[veicTransp+reboque]` × `vagao` × `balsa`) e os tetos `maxOccurs` ficam com o **XSD**(Q1). O `src` resolve a colisão de tags (`UF`/`placa`/`RNTC`) entre `transporta`/`veicTransp`/`reboque`."
+    },
+    "Transportadora": {
+      "type": "object",
+      "properties": {
+        "CNPJ": {
+          "type": "string"
+        },
+        "CPF": {
+          "type": "string"
+        },
+        "xNome": {
+          "type": "string"
+        },
+        "IE": {
+          "type": "string"
+        },
+        "xEnder": {
+          "type": "string"
+        },
+        "xMun": {
+          "type": "string"
+        },
+        "UF": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Transportadora (`<transporta>`, X03) — identificação por **escolha exclusiva** CNPJ × CPF (byPresence `atMostOne`: nenhuma ou uma) + razão social, IE, endereço, município e UF, todos opcionais e **transcritos**. Sub-grupo único do `transp` (via `src`): o `src` resolve a colisão da tag `UF` com o veículo."
+    },
+    "RetencaoTransporte": {
+      "type": "object",
+      "properties": {
+        "vServ": {
+          "type": "number"
+        },
+        "vBCRet": {
+          "type": "number"
+        },
+        "pICMSRet": {
+          "type": "number"
+        },
+        "vICMSRet": {
+          "type": "number"
+        },
+        "CFOP": {
+          "type": "string"
+        },
+        "cMunFG": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "vServ",
+        "vBCRet",
+        "pICMSRet",
+        "vICMSRet",
+        "CFOP",
+        "cMunFG"
+      ],
+      "additionalProperties": false,
+      "description": "Retenção do ICMS do transporte (`<retTransp>`, X11) — serviço, BC, alíquota, ICMS retido, CFOP e município do fato gerador. **Transcrição cega**(a fórmula da retenção é do emitente). Os campos são obrigatórios quando o grupo é informado (espelho do XSD). Sub-grupo único via `src`."
+    },
+    "Veiculo": {
+      "type": "object",
+      "properties": {
+        "placa": {
+          "type": "string"
+        },
+        "UF": {
+          "type": "string"
+        },
+        "RNTC": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "placa"
+      ],
+      "additionalProperties": false,
+      "description": "Veículo de transporte (XSD `TVeiculo`) — `placa` (obrigatória) + `UF`/`RNTC` opcionais. **Transcrito**. Reusado por `veicTransp` (sub-grupo único) e por cada `reboque` (repetido via `many`); o `src` isola a colisão da tag `UF`/`placa`/`RNTC` com a `transporta`."
+    },
+    "Volume": {
+      "type": "object",
+      "properties": {
+        "qVol": {
+          "type": "string"
+        },
+        "esp": {
+          "type": "string"
+        },
+        "marca": {
+          "type": "string"
+        },
+        "nVol": {
+          "type": "string"
+        },
+        "pesoL": {
+          "type": "number"
+        },
+        "pesoB": {
+          "type": "number"
+        },
+        "lacres": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Lacre"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "description": "Volume transportado (`<vol>`, X26) — quantidade, espécie, marca, numeração, pesos e N lacres aninhados, todos opcionais e **transcritos**. N volumes por nota (construto `many`); cada um com N `lacres` (`many` aninhado). `qVol` é string de dígitos (XSD `[0-9]{1,15}`); `pesoL`/`pesoB` em kg (3 casas, XSD `TDec_1203`)."
+    },
+    "Lacre": {
+      "type": "object",
+      "properties": {
+        "nLacre": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "nLacre"
+      ],
+      "additionalProperties": false,
+      "description": "Lacre de um volume (`<lacres>`, X33) — só `nLacre`. N por volume (construto `many` **aninhado** no `vol`)."
+    },
+    "Pagamento": {
+      "type": "object",
+      "properties": {
+        "indPag": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ]
+        },
+        "tPag": {
+          "type": "string"
+        },
+        "vPag": {
+          "type": "number"
+        },
+        "card": {
+          "$ref": "#/definitions/CardPagamento"
+        }
+      },
+      "required": [
+        "tPag",
+        "vPag"
+      ],
+      "additionalProperties": false,
+      "description": "Detalhe de pagamento (`<detPag>`, YA02) — uma forma de pagamento, **transcrito**: `tPag` (forma) e `vPag` (valor) obrigatórios; `indPag` (0-à vista / 1-a prazo) e o sub-grupo `card` opcionais. N `detPag` por nota (construto `many`, `min=1` — o XSD exige ao menos um). `vPag = 0,00` é aceito sem regra condicional especial (ex.: `tPag = 90`, sem pagamento). O `vTroco` mora no **nível do `pag`** (`NFeData`), não aqui."
+    },
+    "CardPagamento": {
+      "type": "object",
+      "properties": {
+        "tpIntegra": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2"
+          ]
+        },
+        "CNPJ": {
+          "type": "string"
+        },
+        "tBand": {
+          "type": "string"
+        },
+        "cAut": {
+          "type": "string"
+        },
+        "CNPJReceb": {
+          "type": "string"
+        },
+        "idTermPag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tpIntegra"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo `card` (YA04a) do `detPag` — cartão / PIX / boleto e demais pagamentos eletrônicos, **transcrito**. `tpIntegra` (integração do pagamento com a automação) é obrigatório quando o bloco existe; os demais (CNPJ da operadora, bandeira, autorização, CNPJ recebedor, terminal) são opcionais. **Presence-driven** (via `src`): ausente ⇒ o `detPag` não emite `card`."
+    },
+    "Cobranca": {
+      "type": "object",
+      "properties": {
+        "fat": {
+          "$ref": "#/definitions/Fatura"
+        },
+        "dup": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Duplicata"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "description": "Grupo `<cobr>` (Y01) — cobrança da NF-e: fatura (`fat`) + N duplicatas (`dup`). Opcional e **só transcrição**. Ausente ⇒ grupo omitido."
+    },
+    "Fatura": {
+      "type": "object",
+      "properties": {
+        "nFat": {
+          "type": "string"
+        },
+        "vOrig": {
+          "type": "number"
+        },
+        "vDesc": {
+          "type": "number"
+        },
+        "vLiq": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Fatura (`<fat>`, Y03) do grupo de cobrança — número, valor original, desconto e líquido, todos opcionais e **transcritos**: só transcrição, **sem conferência** de fatura. Sub-grupo único do `cobr` (via `src`)."
+    },
+    "Duplicata": {
+      "type": "object",
+      "properties": {
+        "nDup": {
+          "type": "string"
+        },
+        "dVenc": {
+          "type": "string"
+        },
+        "vDup": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "vDup"
+      ],
+      "additionalProperties": false,
+      "description": "Duplicata (`<dup>`, Y07) — número, vencimento e valor; só `vDup` é obrigatório (o XSD). N por nota (construto `many`). **Transcrita**. `dVenc` é data-calendário `'AAAA-MM-DD'` (não um `Date` — sem fuso)."
+    },
+    "InfAdicional": {
+      "type": "object",
+      "properties": {
+        "infAdFisco": {
+          "type": "string"
+        },
+        "infCpl": {
+          "type": "string"
+        },
+        "obsCont": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ObservacaoLivre"
+          }
+        },
+        "obsFisco": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ObservacaoLivre"
+          }
+        },
+        "procRef": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProcessoReferenciado"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "description": "Informações adicionais (`<infAdic>`, Z01) — `infAdFisco` (interesse do fisco) + `infCpl` (complementares ao contribuinte), ambos opcionais, mais N `obsCont`/`obsFisco` (observações livres com atributo) e N `procRef`. Grupo opcional e **transcrito**; ausente ⇒ omitido."
+    },
+    "ProcessoReferenciado": {
+      "type": "object",
+      "properties": {
+        "nProc": {
+          "type": "string"
+        },
+        "indProc": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "9"
+          ]
+        }
+      },
+      "required": [
+        "nProc",
+        "indProc"
+      ],
+      "additionalProperties": false,
+      "description": "Processo referenciado (`<procRef>`, Z11) do `infAdic` — `nProc` (identificador do processo/ato) + `indProc` (origem: 0-SEFAZ, 1-Justiça Federal, …). N por nota (`maxOccurs=100`). **Transcrito**."
+    },
+    "AutorizadoXML": {
+      "type": "object",
+      "properties": {
+        "CNPJ": {
+          "type": "string"
+        },
+        "CPF": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Autorizado a baixar o XML da NF-e (`<autXML>`, GA01) — **escolha exclusiva** CNPJ × CPF (byPresence padrão B; a exclusividade é verificada em runtime, por isso ambos são opcionais no tipo). N entradas por nota (`maxOccurs=10` ao XSD); ausente ⇒ grupo omitido. Walking-skeleton do `many`."
+    },
+    "LocalNFe": {
+      "type": "object",
+      "properties": {
+        "CNPJ": {
+          "type": "string"
+        },
+        "CPF": {
+          "type": "string"
+        },
+        "xNome": {
+          "type": "string"
+        },
+        "xLgr": {
+          "type": "string"
+        },
+        "nro": {
+          "type": "string"
+        },
+        "xCpl": {
+          "type": "string"
+        },
+        "xBairro": {
+          "type": "string"
+        },
+        "cMun": {
+          "type": "string"
+        },
+        "xMun": {
+          "type": "string"
+        },
+        "UF": {
+          "type": "string"
+        },
+        "CEP": {
+          "type": "string"
+        },
+        "cPais": {
+          "type": "string"
+        },
+        "xPais": {
+          "type": "string"
+        },
+        "fone": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "IE": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "xLgr",
+        "nro",
+        "xBairro",
+        "cMun",
+        "xMun",
+        "UF"
+      ],
+      "additionalProperties": false,
+      "description": "Local de **entrega** (`<entrega>`, G01) ou **retirada** (`<retirada>`, F01) — XSD `TLocal`, **flat** (endereço inline, sem sub-grupo). Identificação por **escolha exclusiva** CNPJ × CPF (byPresence padrão B); `xLgr`/`nro`/`xBairro`/`cMun`/`xMun`/`UF` obrigatórios, os demais opcionais (extras 4.00: `cPais`/`xPais`/`fone`/ `email`/`IE`). **Transcrito**; informar só quando difere do remetente/destinatário."
+    },
+    "Intermediador": {
+      "type": "object",
+      "properties": {
+        "CNPJ": {
+          "type": "string"
+        },
+        "idCadIntTran": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "CNPJ",
+        "idCadIntTran"
+      ],
+      "additionalProperties": false,
+      "description": "Intermediador da transação (`<infIntermed>`, NA01) — marketplace/plataforma de delivery: `CNPJ` + `idCadIntTran` (identificador cadastrado no intermediador), **ambos obrigatórios** quando o grupo existe (espelho do XSD). Grupo opcional e **transcrito**; ausente ⇒ omitido."
+    },
+    "InformacaoExportacao": {
+      "type": "object",
+      "properties": {
+        "UFSaidaPais": {
+          "type": "string"
+        },
+        "xLocExporta": {
+          "type": "string"
+        },
+        "xLocDespacho": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "UFSaidaPais",
+        "xLocExporta"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo **`exporta`** (`<exporta>`, ZA01, XSD §infNFe/exporta) — informações de exportação no **nível da nota**, **transcrito cego**. `UFSaidaPais` (UF de embarque/transposição de fronteira) e `xLocExporta` (local de embarque/transposição) obrigatórios; `xLocDespacho` (local de despacho) opcional. Wiring na posição do XSD: entre `infAdic` e `infRespTec`. Presence-driven: ausente ⇒ omitido. O `compra` (irmão imediato no XSD) é compra governamental — fora de escopo."
+    },
+    "InformacaoCompra": {
+      "type": "object",
+      "properties": {
+        "xNEmp": {
+          "type": "string"
+        },
+        "xPed": {
+          "type": "string"
+        },
+        "xCont": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Grupo **`compra`** (`<compra>`, ZB, XSD §infNFe/compra) — referências de **compra pública** (NT2011/004): `xNEmp` (Nota de Empenho), `xPed` (pedido) e `xCont` (contrato), **todos opcionais** (o XSD os declara `minOccurs=0`). **transcrito cego**. Grupo *flat*, clone do `exporta`. Posição no XSD: entre `exporta` e `infRespTec`. Presence-driven: informe ao menos um subcampo ⇒ `<compra>` é emitido; ausente ⇒ omitido. **Não confundir** com o `gCompraGov` do `ide` (reforma, `CompraGov`)."
+    },
+    "RegistroCana": {
+      "type": "object",
+      "properties": {
+        "safra": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "forDia": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FornecimentoDiaCana"
+          }
+        },
+        "qTotMes": {
+          "type": "number"
+        },
+        "qTotAnt": {
+          "type": "number"
+        },
+        "qTotGer": {
+          "type": "number"
+        },
+        "deduc": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DeducaoCana"
+          }
+        },
+        "vFor": {
+          "type": "number"
+        },
+        "vTotDed": {
+          "type": "number"
+        },
+        "vLiqFor": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "safra",
+        "ref",
+        "forDia",
+        "qTotMes",
+        "qTotAnt",
+        "qTotGer",
+        "vFor",
+        "vTotDed",
+        "vLiqFor"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo **`cana`** (`<cana>`, ZC, XSD §infNFe/cana) — **registro de aquisição de cana** (usina): a safra, o mês/ano de referência (`ref`, MM/AAAA), os fornecimentos diários (`forDia[]`), os totais do mês/anterior/geral, as deduções (`deduc[]?`) e os valores (bruto `vFor` / deduções `vTotDed` / líquido `vLiqFor`). **transcrito cego**(`vLiqFor`/`vTotDed`/`qTotGer` NÃO são recalculados nem alertados — fora do eixo `imposto`/`ICMSTot`, precedente `retTransp`/`CIDE`). Posição no XSD: entre `compra` e `infRespTec`. Presence-driven: informe `documento.cana` ⇒ `<cana>` emitido; ausente ⇒ omitido. Nada agrega ao `total`/`vNF`."
+    },
+    "FornecimentoDiaCana": {
+      "type": "object",
+      "properties": {
+        "dia": {
+          "type": "number"
+        },
+        "qtde": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "dia",
+        "qtde"
+      ],
+      "additionalProperties": false,
+      "description": "Fornecimento **diário** de cana (`<forDia>`, ZC04) do grupo `RegistroCana` — a quantidade entregue num dia do mês. O **dia** vai no **atributo** `@dia` (canal de atributo) e a quantidade em quilos (peso líquido) no elemento `qtde`. N por registro (`maxOccurs=31` ao XSD; a unicidade de `@dia` fica com o XSD). **Transcrito**."
+    },
+    "DeducaoCana": {
+      "type": "object",
+      "properties": {
+        "xDed": {
+          "type": "string"
+        },
+        "vDed": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "xDed",
+        "vDed"
+      ],
+      "additionalProperties": false,
+      "description": "Dedução (`<deduc>`, ZC10) do grupo `RegistroCana` — taxa/contribuição descontada do valor bruto: `xDed` (descrição) + `vDed` (valor). N por registro (`maxOccurs=10` ao XSD). **Transcrito**."
+    },
+    "ProdutoAgropecuario": {
+      "type": "object",
+      "properties": {
+        "defensivo": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DefensivoAgricola"
+          }
+        },
+        "guiaTransito": {
+          "$ref": "#/definitions/GuiaTransitoAgropecuario"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Grupo **`agropecuario`** (`<agropecuario>`, ZF, XSD §infNFe/agropecuario, **NT 2024.003 rastreabilidade**, NÃO reforma) — rastreabilidade de produtos agropecuários animais/vegetais/florestais. **`xs:choice`**: `defensivo[]` (receituário de defensivo, até 20) **⊻** `guiaTransito` (guia de trânsito). **transcrito cego**. Posição no XSD: **por último** no `infNFe` (após `infRespTec`). **Sem gate de data** (a NT 2024.003 é independente da reforma — a fonte NÃO passa pelo `reformaVigente`, senão suprimiria uma guia legítima em nota anterior à vigência). Presence-driven; a **exclusividade** do choice é deixada ao XSD."
+    },
+    "DefensivoAgricola": {
+      "type": "object",
+      "properties": {
+        "nReceituario": {
+          "type": "string"
+        },
+        "CPFRespTec": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "nReceituario",
+        "CPFRespTec"
+      ],
+      "additionalProperties": false,
+      "description": "Defensivo agrícola / agrotóxico (`<defensivo>`, ZF02) do grupo `ProdutoAgropecuario` — `nReceituario` (número do receituário/receita) + `CPFRespTec` (CPF do responsável técnico). N por nota (`maxOccurs=20` ao XSD). **Transcrito**."
+    },
+    "GuiaTransitoAgropecuario": {
+      "type": "object",
+      "properties": {
+        "tpGuia": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7"
+          ]
+        },
+        "UFGuia": {
+          "type": "string"
+        },
+        "serieGuia": {
+          "type": "string"
+        },
+        "nGuia": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tpGuia",
+        "UFGuia",
+        "nGuia"
+      ],
+      "additionalProperties": false,
+      "description": "Guia de trânsito (`<guiaTransito>`, ZF04) do grupo `ProdutoAgropecuario` — para produtos que trafegam com guia (1-GTA/2-TTA/3-DTA/4-ATV/5-PTV/6-GTV/7-Guia Florestal): `tpGuia` (tipo, enum 1–7), `UFGuia` (UF emissora), `serieGuia` (opcional) e `nGuia` (número). **Transcrito**."
+    }
+  }
+}
