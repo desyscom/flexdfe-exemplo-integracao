@@ -14,7 +14,12 @@ export type Config = {
   enderecoBase: string;
   /** Credencial de gestão (escopo de integrador). Cadastra, não emite. */
   gestao: Credencial;
-  certificado: { caminho: string; senha: string };
+  /**
+   * O A1 que a aplicação sobe no passo 2. `caminho` é `null` quando o `.env` não traz
+   * `CERTIFICADO_PFX`: quem vincula um emitente já cadastrado no painel não precisa dele, porque o
+   * certificado já está no cofre da plataforma.
+   */
+  certificado: { caminho: string | null; senha: string };
   banco: string;
   porta: number;
 };
@@ -31,7 +36,7 @@ export function carregarConfig(env: NodeJS.ProcessEnv = process.env, arquivo = '
   return {
     enderecoBase: obrigatoria('FLEXDFE_URL').replace(/\/+$/, ''),
     gestao: { clientId: obrigatoria('FLEXDFE_CLIENT_ID'), secret: obrigatoria('FLEXDFE_SECRET') },
-    certificado: { caminho: obrigatoria('CERTIFICADO_PFX'), senha: env.CERTIFICADO_SENHA ?? '' },
+    certificado: { caminho: env.CERTIFICADO_PFX?.trim() || null, senha: env.CERTIFICADO_SENHA ?? '' },
     banco: env.BANCO?.trim() || './exemplo.sqlite',
     porta: Number(env.PORTA ?? 3080),
   };

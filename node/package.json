@@ -6,11 +6,11 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=22.18"
+    "node": ">=22.15"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning src/servidor.ts",
-    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
+    "start": "node --disable-warning=ExperimentalWarning --experimental-strip-types src/servidor.ts",
+    "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test \"test/**/*.test.ts\"",
     "tipos": "tsc --noEmit",
     "check": "npm run tipos && npm test"
   },

@@ -188,7 +188,108 @@ test('id de emitente que a API não conhece mais é explicado na tela', async ()
     c.banco.gravarEmitenteId('00000000-0000-0000-0000-000000000000');
     const tela = await c.get('/emitente');
     assert.match(tela.html, /Não consegui ler o emitente guardado: HTTP 404/);
-    assert.match(tela.html, /Apague o banco local para recomeçar/);
+    assert.match(tela.texto, /Use Recomeçar do zero, na tela Configuração/);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+// ---------------------------------------------------------------- o atalho: emitente já cadastrado
+
+/**
+ * Cria o emitente e a credencial operacional na API e depois LIMPA o banco local, para o cenário
+ * ficar igual ao de quem fez tudo no painel: a plataforma sabe do emitente, a aplicação não.
+ */
+async function jaCadastradoNaPlataforma(c: Cenario) {
+  await ateCredencialOperacional(c);
+  const cfg = c.banco.configuracao();
+  c.banco.db.exec('UPDATE configuracao SET emitente_id = NULL, credencial_client_id = NULL, credencial_secret = NULL');
+  return { id: cfg.emitenteId!, clientId: cfg.credencialClientId!, secret: cfg.credencialSecret! };
+}
+
+test('vincular um emitente já cadastrado descobre a ficha pela credencial operacional, sem escrever na API', async () => {
+  const c = await subir();
+  try {
+    const { id, clientId, secret } = await jaCadastradoNaPlataforma(c);
+    const antes = c.api.requisicoes.length;
+
+    const r = await c.post('/emitente/vincular', { client_id: clientId, secret });
+    assert.match(r.texto, /Emitente Loja Exemplo Ltda vinculado/);
+    assert.match(r.texto, /nada foi criado na plataforma/);
+    assert.match(r.texto, /pode ir direto para a série, no passo 5/);
+
+    // Duas leituras, com a credencial informada, e nenhuma escrita.
+    const novas = c.api.requisicoes.slice(antes);
+    assert.ok(novas.every((x) => x.metodo === 'GET'), 'o atalho não escreve na API');
+    const contexto = novas.find((x) => x.caminho === '/v1/contexto')!;
+    assert.equal(contexto.clientId, clientId);
+    assert.ok(novas.some((x) => x.caminho === `/v1/emitentes/${id}` && x.clientId === clientId));
+
+    // O banco local aprendeu o mesmo que aprenderia pelo caminho longo.
+    const cfg = c.banco.configuracao();
+    assert.equal(cfg.emitenteId, id);
+    assert.equal(cfg.credencialClientId, clientId);
+    assert.equal(cfg.credencialSecret, secret);
+    assert.doesNotMatch(r.html, new RegExp(secret), 'o secret não volta para a tela');
+
+    // E a tela mostra os quatro primeiros passos prontos, com a série liberada.
+    const tela = await c.get('/emitente');
+    for (const passo of ['1. Cadastrar o emitente ✓', '2. Subir o certificado A1 ✓', '3. Ativar ✓', '4. Cunhar a credencial operacional ✓'])
+      assert.ok(tela.html.includes(passo), `faltou "${passo}"`);
+    assert.match((await c.post('/emitente/serie', { modelo: '55', serie: '7' })).html, /Série 7 do modelo 55 provisionada/);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('vincular com a credencial de gestão é recusado: ela não emite', async () => {
+  const c = await subir();
+  try {
+    await jaCadastradoNaPlataforma(c);
+    const r = await c.post('/emitente/vincular', { client_id: 'gestao', secret: 'segredo-gestao' });
+    assert.match(r.texto, /escopo "integrador", e o atalho precisa de uma operacional/);
+    assert.equal(c.banco.configuracao().emitenteId, null);
+    assert.equal(c.banco.configuracao().credencialClientId, null);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('vincular com credencial inexistente mostra o envelope da autenticação e não grava nada', async () => {
+  const c = await subir();
+  try {
+    const r = await c.post('/emitente/vincular', { client_id: 'nao-existe', secret: 'nem-esse' });
+    assert.match(r.texto, /A API não aceitou a credencial: HTTP 401/);
+    assert.match(r.texto, /sem type: é a autenticação falando/);
+    assert.equal(c.banco.configuracao().emitenteId, null);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('vincular sobre um emitente já guardado é recusado antes de chamar a API', async () => {
+  const c = await subir();
+  try {
+    await ateCredencialOperacional(c);
+    const antes = c.api.requisicoes.length;
+    const r = await c.post('/emitente/vincular', { client_id: 'x', secret: 'y' });
+    assert.match(r.texto, /Já há um emitente no banco local/);
+    assert.equal(c.api.requisicoes.length - antes, 2, 'só as leituras da tela');
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('o atalho avisa quando o destinatário semeado está fora da UF do emitente', async () => {
+  const c = await subir();
+  try {
+    // O cadastro alinha o destinatário semeado ao município do emitente; desfazê-lo simula o que o
+    // atalho encontra de verdade, porque a leitura do emitente não publica o código IBGE.
+    const { clientId, secret } = await jaCadastradoNaPlataforma(c);
+    c.banco.alinharDestinatarioSemente({ codMunicipio: '3550308', municipio: 'SAO PAULO', uf: 'SP' });
+    const r = await c.post('/emitente/vincular', { client_id: clientId, secret });
+    assert.match(r.texto, /destinatário semeado está em SAO PAULO\/SP e o emitente em Parobé\/RS/);
+    assert.match(r.texto, /DIFAL/);
   } finally {
     await c.encerrar();
   }
