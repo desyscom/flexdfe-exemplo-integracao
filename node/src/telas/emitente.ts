@@ -88,7 +88,7 @@ async function cadastrar({ form, config, banco, cliente }: Contexto): Promise<Re
  */
 async function vincular({ form, banco, cliente }: Contexto): Promise<Resultado> {
   const cfg = banco.configuracao();
-  if (cfg.emitenteId) return { ok: false, titulo: 'Já há um emitente no banco local', detalhe: 'Trocar de emitente misturaria as notas já gravadas com as do novo. Apague o banco local para recomeçar.' };
+  if (cfg.emitenteId) return { ok: false, titulo: 'Já há um emitente no banco local', detalhe: 'Trocar de emitente misturaria as notas já gravadas com as do novo. Para trocar, use Recomeçar do zero, na tela Configuração.' };
 
   const credencial: Credencial = { clientId: form.get('client_id')?.trim() ?? '', secret: form.get('secret')?.trim() ?? '' };
   if (!credencial.clientId || !credencial.secret) return { ok: false, titulo: 'Informe o client_id e o secret da credencial' };
@@ -166,7 +166,7 @@ async function ativar({ config, banco, cliente }: Contexto): Promise<Resultado> 
 async function cunharCredencial({ config, banco, cliente }: Contexto): Promise<Resultado> {
   const cfg = banco.configuracao();
   if (!cfg.emitenteId) return { ok: false, titulo: 'Cadastre o emitente antes de cunhar a credencial' };
-  if (cfg.credencialClientId) return { ok: false, titulo: 'Já existe uma credencial operacional guardada', detalhe: 'Cunhar outra funcionaria, mas o segredo desta seria perdido. Apague o banco local se quiser recomeçar.' };
+  if (cfg.credencialClientId) return { ok: false, titulo: 'Já existe uma credencial operacional guardada', detalhe: 'Cunhar outra funcionaria, mas o segredo desta seria perdido. Para recomeçar, use Recomeçar do zero, na tela Configuração.' };
   try {
     const { corpo } = await cliente.cunharCredencial(config.gestao, 'Exemplo de integração', cfg.emitenteId);
     // O secret aparece só neste corpo. Guardar é agora ou nunca.
@@ -247,7 +247,7 @@ async function renderizar(ctx: Contexto, ultimo: Resultado): Promise<Resposta> {
       emitente = (await cliente.lerEmitente(credencialDeLeitura, cfg.emitenteId)).corpo;
     } catch (erro) {
       leituraFalhou = resultadoDeErro('Não consegui ler o emitente guardado', erro);
-      if (erro instanceof ErroApi && erro.status === 404) leituraFalhou = { ...leituraFalhou!, detalhe: 'O id no banco local não existe mais na API, ou está fora da carteira desta credencial. Apague o banco local para recomeçar.' };
+      if (erro instanceof ErroApi && erro.status === 404) leituraFalhou = { ...leituraFalhou!, detalhe: 'O id no banco local não existe mais na API, ou está fora da carteira desta credencial. Use Recomeçar do zero, na tela Configuração.' };
     }
   }
 

@@ -246,6 +246,36 @@ export class Banco {
     }
   }
 
+  /**
+   * Volta o banco local ao estado da primeira execução: apaga o que a aplicação aprendeu (emitente,
+   * credencial operacional, segredo do webhook, cursor do feed) e o que ela gravou (notas, operações,
+   * eventos, produtos e destinatários), e semeia de novo.
+   *
+   * **Nada na plataforma é tocado.** O emitente continua cadastrado, as notas emitidas continuam
+   * autorizadas, a credencial continua válida. O que se perde é local e irrecuperável: os `secret`
+   * da credencial operacional e do webhook, que a API mostra UMA vez e não repete. Depois disto, o
+   * caminho de volta é vincular a credencial de novo (se você a anotou) ou cunhar outra no painel.
+   */
+  reiniciar(): void {
+    this.db.exec(`
+      DELETE FROM evento;
+      DELETE FROM operacao;
+      DELETE FROM nota;
+      DELETE FROM destinatario;
+      DELETE FROM produto;
+      UPDATE configuracao
+         SET emitente_id = NULL, credencial_client_id = NULL, credencial_secret = NULL,
+             webhook_secret = NULL, cursor_feed = 0
+       WHERE id = 1;
+    `);
+    // Os ids recomeçam do 1, como numa instalação nova. A tabela só existe depois do primeiro
+    // AUTOINCREMENT, então a presença é conferida antes.
+    if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'").get()) {
+      this.db.exec('DELETE FROM sqlite_sequence');
+    }
+    this.semear();
+  }
+
   private contar(tabela: string): number {
     return Number((this.db.prepare(`SELECT COUNT(*) AS n FROM ${tabela}`).get() as { n: number }).n);
   }

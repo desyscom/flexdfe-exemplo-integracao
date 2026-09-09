@@ -18,6 +18,8 @@ cp .env.exemplo .env
 
 Preencha `FLEXDFE_CLIENT_ID` e `FLEXDFE_SECRET`. `CERTIFICADO_PFX` e `CERTIFICADO_SENHA` são opcionais: só o cadastro de um emitente **novo** os usa. O restante tem padrão.
 
+Para começar de novo — trocar de emitente, por exemplo —, use **Recomeçar do zero** na tela Configuração; apagar o arquivo do banco à mão faz o mesmo.
+
 **Nunca commite `.env`, o `.pfx` nem o arquivo do banco.** O `.gitignore` deste repositório já os exclui; se copiar o código para o seu, leve a exclusão junto. **O banco SQLite guarda em claro a credencial operacional e o segredo do webhook**: é o custo de você configurar uma credencial só e a aplicação cunhar a outra. Trate o arquivo como trata o `.env`.
 
 ## Rodar
@@ -40,6 +42,8 @@ node --disable-warning=ExperimentalWarning test/demo.ts
 Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela em `src/telas/`, e cada página lista no rodapé as chamadas que fez, com status e tempo.
 
 1. **Configuração** mostra o que veio do `.env` e chama `GET /v1/contexto` para provar a credencial e o escopo. Não há parâmetro de ambiente em lugar nenhum: a credencial é de um emitente, e o emitente é de um ambiente.
+
+   É também onde fica **Recomeçar do zero**, que apaga o banco local inteiro e semeia os dados de exemplo de novo — o caminho para **trocar de emitente** sem misturar as notas de um com as do outro. Não chama a API: o emitente continua cadastrado, as notas emitidas continuam autorizadas e a credencial continua válida. O que se perde é local e irrecuperável: os `secret` da credencial operacional e do webhook, que a API mostra uma única vez. Por isso o botão exige confirmação.
 
 2. **Emitente** são seis passos, na ordem que a API exige:
 
@@ -80,7 +84,7 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
 
 | Tela | Rota | Credencial |
 |---|---|---|
-| Configuração | `GET /v1/contexto` | gestão |
+| Configuração | `GET /v1/contexto` (o reset do banco local não chama nada) | gestão |
 | Emitente | as seis da tabela acima | gestão, depois operacional |
 | Nova nota | `GET /v1/emitentes/{id}`, `POST /v1/nfe?wait=8000` (com `Idempotency-Key`) | operacional |
 | Notas | `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/xml`, `GET /v1/nfe/{id}/danfe`, `POST /v1/nfe/{id}/consulta`, `POST /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cancelamento`, `POST /v1/nfe/{id}/cce`, `GET /v1/nfe/{id}/cce` | operacional |

@@ -188,7 +188,7 @@ test('id de emitente que a API não conhece mais é explicado na tela', async ()
     c.banco.gravarEmitenteId('00000000-0000-0000-0000-000000000000');
     const tela = await c.get('/emitente');
     assert.match(tela.html, /Não consegui ler o emitente guardado: HTTP 404/);
-    assert.match(tela.html, /Apague o banco local para recomeçar/);
+    assert.match(tela.texto, /Use Recomeçar do zero, na tela Configuração/);
   } finally {
     await c.encerrar();
   }

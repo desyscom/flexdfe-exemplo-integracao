@@ -9,7 +9,7 @@ import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Serv
 import type { Config } from './config.ts';
 import type { Banco } from './banco.ts';
 import { criarClienteApi, type Chamada, type ClienteApi } from './cliente-api.ts';
-import { telaConfiguracao } from './telas/configuracao.ts';
+import { acoesConfiguracao, telaConfiguracao } from './telas/configuracao.ts';
 import { acoesEmitente, telaEmitente } from './telas/emitente.ts';
 import { acoesProdutos, telaProdutos } from './telas/produtos.ts';
 import { acoesDestinatarios, telaDestinatarios } from './telas/destinatarios.ts';
@@ -45,6 +45,7 @@ export function criarApp(deps: Deps): Server {
   const rotas: [string, Rota][] = [
     ['GET /', async () => ({ redirecionar: '/configuracao' })],
     ['GET /configuracao', telaConfiguracao],
+    ...acoes('/configuracao', acoesConfiguracao),
     ['GET /emitente', telaEmitente],
     ...acoes('/emitente', acoesEmitente),
     ['GET /produtos', telaProdutos],
