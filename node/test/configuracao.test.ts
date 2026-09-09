@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { subir } from './apoio.ts';
+import { EMITENTE_VALIDO, subir } from './apoio.ts';
+import { carregarConfig } from '../src/config.ts';
 
 test('a raiz leva à Configuração', async () => {
   const c = await subir();
@@ -50,6 +51,34 @@ test('credencial operacional no .env é reconhecida como escopo errado para esta
   try {
     const { texto } = await c.get('/configuracao');
     assert.match(texto, /tem escopo "emitente", e esta aplicação espera uma de gestão/);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+// ---------------------------------------------------------------- o .pfx é opcional
+
+const ENV_MINIMO = { FLEXDFE_URL: 'https://api.exemplo/', FLEXDFE_CLIENT_ID: 'c', FLEXDFE_SECRET: 's' };
+
+test('sem CERTIFICADO_PFX a configuração carrega: quem vincula um emitente pronto não sobe certificado', () => {
+  const config = carregarConfig({ ...ENV_MINIMO } as NodeJS.ProcessEnv, '/nao/existe/.env');
+  assert.equal(config.certificado.caminho, null);
+  assert.equal(config.enderecoBase, 'https://api.exemplo');
+});
+
+test('a credencial de gestão continua obrigatória', () => {
+  assert.throws(() => carregarConfig({ FLEXDFE_URL: 'https://x' } as NodeJS.ProcessEnv, '/nao/existe/.env'), /Falta FLEXDFE_CLIENT_ID/);
+});
+
+test('sem .pfx as telas dizem o que falta, em vez de apontar para um arquivo que não existe', async () => {
+  const c = await subir();
+  c.config.certificado.caminho = null;
+  try {
+    assert.match((await c.get('/configuracao')).texto, /não configurado \(só faz falta ao cadastrar um emitente novo\)/);
+    await c.post('/emitente/cadastrar', EMITENTE_VALIDO);
+    assert.match((await c.get('/emitente')).texto, /Sem <code>CERTIFICADO_PFX<\/code> no <code>.env<\/code>, não há o que enviar/);
+    const r = await c.post('/emitente/certificado');
+    assert.match(r.texto, /Não há certificado configurado/);
   } finally {
     await c.encerrar();
   }

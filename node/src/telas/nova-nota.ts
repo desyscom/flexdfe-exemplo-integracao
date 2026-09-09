@@ -26,7 +26,7 @@ export const acoesNovaNota: Record<string, Rota> = {
 };
 
 async function emitir(ctx: Contexto): Promise<Resultado> {
-  const { form, banco, cliente, config } = ctx;
+  const { form, banco, cliente } = ctx;
   const operacional = banco.credencialOperacional();
   const { emitenteId } = banco.configuracao();
   if (!operacional || !emitenteId) return { ok: false, titulo: 'Emitir exige a credencial operacional', detalhe: 'Complete a tela Emitente antes.' };
@@ -58,9 +58,11 @@ async function emitir(ctx: Contexto): Promise<Resultado> {
   if (divergencia) return { ok: false, titulo: 'Pagamento divergente, nada foi enviado', detalhe: `${divergencia}. A API aceitaria e devolveria o alerta PAG_DIVERGENTE no resultado; conferir antes é mais barato.` };
 
   // ---- O CRT do emitente escolhe a variante tributária. ----
+  // Lido pela credencial OPERACIONAL, e não pela de gestão: um emitente vinculado pelo atalho da
+  // tela Emitente pode estar fora da carteira da de gestão, e a operacional lê o próprio emitente.
   let emitente: Emitente;
   try {
-    emitente = (await cliente.lerEmitente(config.gestao, emitenteId)).corpo;
+    emitente = (await cliente.lerEmitente(operacional, emitenteId)).corpo;
   } catch (erro) {
     return resultadoDeErro('Não consegui ler o emitente para saber o CRT', erro);
   }
@@ -90,7 +92,7 @@ async function renderizar(ctx: Contexto, ultimo: Resultado): Promise<Resposta> {
   let emitente: Emitente | null = null;
   if (emitenteId) {
     try {
-      emitente = (await cliente.lerEmitente(config.gestao, emitenteId)).corpo;
+      emitente = (await cliente.lerEmitente(operacional ?? config.gestao, emitenteId)).corpo;
     } catch {
       // A tela abaixo explica que falta o emitente; o erro detalhado está na tela Emitente.
     }

@@ -8,7 +8,7 @@ Uma tela local, sem framework, que percorre o ciclo inteiro do emitente na API d
 
 - Node **22.18 ou mais novo** (o `npm start` roda `.ts` direto e usa `node:sqlite`).
 - Uma **credencial de gestão** do Flex DFe: no painel, em Credenciais & Webhooks, gere uma credencial **sem** escolher emitente. O `secret` aparece uma única vez.
-- O **certificado A1** (`.pfx`) do CNPJ que vai emitir, e a senha dele.
+- O **certificado A1** (`.pfx`) do CNPJ que vai emitir, e a senha dele — **só** se você for cadastrar um emitente novo pela API. Se o emitente já existe no painel, com certificado e credencial operacional, não precisa: o atalho do passo 1 dispensa este pré-requisito.
 
 ## Configurar
 
@@ -16,7 +16,7 @@ Uma tela local, sem framework, que percorre o ciclo inteiro do emitente na API d
 cp .env.exemplo .env
 ```
 
-Preencha `FLEXDFE_CLIENT_ID`, `FLEXDFE_SECRET`, `CERTIFICADO_PFX` e `CERTIFICADO_SENHA`. O restante tem padrão.
+Preencha `FLEXDFE_CLIENT_ID` e `FLEXDFE_SECRET`. `CERTIFICADO_PFX` e `CERTIFICADO_SENHA` são opcionais: só o cadastro de um emitente **novo** os usa. O restante tem padrão.
 
 **Nunca commite `.env`, o `.pfx` nem o arquivo do banco.** O `.gitignore` deste repositório já os exclui; se copiar o código para o seu, leve a exclusão junto. **O banco SQLite guarda em claro a credencial operacional e o segredo do webhook**: é o custo de você configurar uma credencial só e a aplicação cunhar a outra. Trate o arquivo como trata o `.env`.
 
@@ -54,6 +54,10 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
 
    A credencial de gestão **não emite**. A que emite é a operacional, que o passo 4 cunha a partir dela e guarda no banco local. Você só configura uma.
 
+   **Atalho, quando o emitente já existe na plataforma.** Os passos de 1 a 4 são o onboarding pela API, e existem porque um integrador precisa fazê-lo. Se o emitente já foi cadastrado no painel — com certificado, ativo, e com uma credencial **operacional** cunhada lá —, informe essa credencial no atalho do passo 1: a aplicação chama `GET /v1/contexto` para descobrir de quem ela é e `GET /v1/emitentes/{id}` para trazer a ficha, guarda as duas coisas no banco local e vai direto para a série. Duas leituras, nenhuma escrita, e nada é criado na plataforma. É o que um ERP faz de verdade quando o cliente entrega uma credencial pronta: a integração nunca cadastra ninguém, só se apresenta.
+
+   Uma diferença fica: o cadastro pela API move o destinatário semeado para o município do emitente, e o atalho não consegue, porque a leitura do emitente publica município e UF mas não o código IBGE. Se as UFs divergirem, a tela avisa e o ajuste é na tela Destinatários.
+
 3. **Produtos** e **Destinatários** são cadastros locais mínimos, já semeados: três produtos tributados nas duas variantes (Simples Nacional por `csosn`, Regime Normal por `cst`) e um destinatário com o nome que a SEFAZ exige em homologação. Qual variante vai para a nota é decidido pelo **CRT do emitente** cadastrado. Os códigos e as alíquotas são plausíveis, não uma recomendação: a classificação fiscal de cada item é sua, e é o que o seu contador define.
 
 4. **Nova nota** escolhe modelo 55 ou 65, destinatário (opcional no 65), itens e pagamento. A tela confere a soma dos pagamentos contra o total dos itens, monta o `documento`, gera a `Idempotency-Key`, **grava a nota antes de chamar** e só então faz `POST /v1/nfe?wait=8000`. Desfecho dentro do `wait` é gravado; estouro deixa a nota "processando".
@@ -78,7 +82,7 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
 |---|---|---|
 | Configuração | `GET /v1/contexto` | gestão |
 | Emitente | as seis da tabela acima | gestão, depois operacional |
-| Nova nota | `GET /v1/emitentes/{id}`, `POST /v1/nfe?wait=8000` (com `Idempotency-Key`) | gestão, operacional |
+| Nova nota | `GET /v1/emitentes/{id}`, `POST /v1/nfe?wait=8000` (com `Idempotency-Key`) | operacional |
 | Notas | `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/xml`, `GET /v1/nfe/{id}/danfe`, `POST /v1/nfe/{id}/consulta`, `POST /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cancelamento`, `POST /v1/nfe/{id}/cce`, `GET /v1/nfe/{id}/cce` | operacional |
 | Inutilização | `POST /v1/inutilizacoes?wait=8000` (com `Idempotency-Key`) | operacional |
 | Eventos | `GET /v1/nfe/events`, `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cce` | operacional |

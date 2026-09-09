@@ -11,11 +11,22 @@
 // A ordem não é convenção da tela: é da API. Ativar sem certificado é 409; série com credencial
 // de gestão é 403 emitente-scope-required. A tela só habilita o passo seguinte quando o anterior
 // existe, para o programador ver a dependência antes de esbarrar nela.
+//
+// Os passos 1 a 4 são o ONBOARDING de um emitente novo, e existem porque um integrador precisa
+// fazê-lo pela API. Quem já tem o emitente pronto no painel — cadastrado, com certificado, ativo e
+// com uma credencial operacional cunhada lá — não repete nada disso: informa a credencial no
+// atalho do passo 1 e a aplicação descobre o resto sozinha, com duas leituras:
+//
+//   GET /v1/contexto           diz de QUEM é a credencial (escopo `emitente` ⇒ traz o `id`)
+//   GET /v1/emitentes/{id}     traz a ficha: razão social, CRT, certificado, ambiente, webhook
+//
+// É o caminho mais curto para uma nota de teste, e é o que um ERP faz de verdade quando o cliente
+// entrega uma credencial já pronta: a integração nunca cadastra ninguém, só se apresenta.
 
 import { readFile } from 'node:fs/promises';
 import type { Contexto, Resposta, Rota } from '../app.ts';
 import type { Credencial } from '../config.ts';
-import type { CriacaoEmitente, Emitente, Serie } from '../cliente-api.ts';
+import type { Contexto as ContextoApi, CriacaoEmitente, Emitente, Serie } from '../cliente-api.ts';
 import { ErroApi } from '../cliente-api.ts';
 import { bruto, html, pagina, resultado, resultadoDeErro, vazio, type Html, type Resultado } from '../html.ts';
 import { motivoUrlWebhookInvalida } from '../webhook-url.ts';
@@ -25,6 +36,7 @@ export const telaEmitente: Rota = (ctx) => renderizar(ctx, null);
 /** As ações POST /emitente/<nome>. Cada uma faz uma chamada e volta para a mesma tela com o resultado. */
 export const acoesEmitente: Record<string, Rota> = {
   cadastrar: async (ctx) => renderizar(ctx, await cadastrar(ctx)),
+  vincular: async (ctx) => renderizar(ctx, await vincular(ctx)),
   certificado: async (ctx) => renderizar(ctx, await enviarCertificado(ctx)),
   ativar: async (ctx) => renderizar(ctx, await ativar(ctx)),
   credencial: async (ctx) => renderizar(ctx, await cunharCredencial(ctx)),
@@ -65,9 +77,67 @@ async function cadastrar({ form, config, banco, cliente }: Contexto): Promise<Re
   }
 }
 
+/**
+ * O atalho do passo 1: adotar um emitente que já existe na plataforma, a partir da credencial
+ * OPERACIONAL dele. Duas leituras e nenhuma escrita na API — o que muda é só o banco local.
+ *
+ * O `GET /v1/contexto` é quem valida: uma credencial errada não passa da autenticação, e uma de
+ * gestão volta com `escopo: "integrador"`, que a aplicação recusa aqui em vez de guardar uma
+ * credencial que não emite. Com o `id` em mãos, o `GET /v1/emitentes/{id}` traz a ficha — e a
+ * própria credencial operacional a lê, porque a RLS da API a confina ao emitente dela.
+ */
+async function vincular({ form, banco, cliente }: Contexto): Promise<Resultado> {
+  const cfg = banco.configuracao();
+  if (cfg.emitenteId) return { ok: false, titulo: 'Já há um emitente no banco local', detalhe: 'Trocar de emitente misturaria as notas já gravadas com as do novo. Apague o banco local para recomeçar.' };
+
+  const credencial: Credencial = { clientId: form.get('client_id')?.trim() ?? '', secret: form.get('secret')?.trim() ?? '' };
+  if (!credencial.clientId || !credencial.secret) return { ok: false, titulo: 'Informe o client_id e o secret da credencial' };
+
+  let contexto;
+  try {
+    contexto = (await cliente.contexto(credencial)).corpo;
+  } catch (erro) {
+    return resultadoDeErro('A API não aceitou a credencial', erro);
+  }
+  if (!ehDeEmitente(contexto)) {
+    return {
+      ok: false,
+      titulo: `Esta credencial tem escopo "${contexto.escopo}", e o atalho precisa de uma operacional`,
+      detalhe: 'No painel, em Credenciais & Webhooks, gere uma credencial do tipo Operacional, escolhendo o emitente. A de gestão cadastra e cunha, mas não emite nem provisiona série.',
+      corpo: contexto,
+    };
+  }
+
+  let emitente: Emitente;
+  try {
+    emitente = (await cliente.lerEmitente(credencial, contexto.emitente.id)).corpo;
+  } catch (erro) {
+    return resultadoDeErro('Credencial reconhecida, mas não consegui ler a ficha do emitente', erro);
+  }
+
+  banco.gravarEmitenteId(emitente.id);
+  banco.gravarCredencialOperacional(credencial.clientId, credencial.secret);
+
+  // O `GET /v1/emitentes/{id}` publica município e UF, mas não o código IBGE — então o alinhamento
+  // que o cadastro faz sozinho não é possível aqui, e o destinatário semeado continua onde estava.
+  const semente = banco.listarDestinatarios().find((d) => d.semente === 1);
+  const foraDaUf = semente && semente.uf !== emitente.uf
+    ? ` O destinatário semeado está em ${semente.municipio}/${semente.uf} e o emitente em ${emitente.municipio}/${emitente.uf}: ajuste-o na tela Destinatários antes da primeira nota, porque venda interestadual a consumidor final exige o grupo do DIFAL, que este exemplo não monta.`
+    : '';
+  const pendencias = [!emitente.certificado && 'sem certificado', !emitente.ativo && 'inativo'].filter(Boolean).join(' e ');
+
+  return {
+    ok: true,
+    titulo: `Emitente ${emitente.razao_social} vinculado`,
+    detalhe: `id e credencial guardados no banco local; nada foi criado na plataforma.${pendencias ? ` A ficha veio ${pendencias}: resolva no painel, ou pelos passos 2 e 3 com a credencial de gestão do .env.` : ' Certificado no cofre e emitente ativo: pode ir direto para a série, no passo 5.'}${foraDaUf}`,
+    corpo: emitente,
+  };
+}
+
 async function enviarCertificado({ config, banco, cliente }: Contexto): Promise<Resultado> {
   const { emitenteId } = banco.configuracao();
   if (!emitenteId) return { ok: false, titulo: 'Cadastre o emitente antes do certificado' };
+  if (!config.certificado.caminho) return { ok: false, titulo: 'Não há certificado configurado', detalhe: 'Preencha CERTIFICADO_PFX no .env, ou suba o A1 pelo painel — quem vincula um emitente já pronto não precisa deste passo.' };
   let pfx: Buffer;
   try {
     pfx = await readFile(config.certificado.caminho);
@@ -145,6 +215,14 @@ async function definirWebhook({ form, banco, cliente }: Contexto): Promise<Resul
   }
 }
 
+/**
+ * O `GET /v1/contexto` responde numa forma por escopo. Só a de emitente traz o `emitente`, e é a
+ * única que serve ao atalho: é ela que prova que a credencial emite pelo emitente que ela cita.
+ */
+function ehDeEmitente(c: ContextoApi): c is Extract<ContextoApi, { escopo: 'emitente' }> {
+  return c.escopo === 'emitente' && 'emitente' in c && typeof c.emitente === 'object' && c.emitente !== null;
+}
+
 function credencialOperacional(banco: Contexto['banco']): Credencial | null {
   const cfg = banco.configuracao();
   return cfg.credencialClientId && cfg.credencialSecret ? { clientId: cfg.credencialClientId, secret: cfg.credencialSecret } : null;
@@ -157,11 +235,16 @@ async function renderizar(ctx: Contexto, ultimo: Resultado): Promise<Resposta> {
   const cfg = banco.configuracao();
   const operacional = credencialOperacional(banco);
 
+  // A ficha é lida pela credencial OPERACIONAL quando já há uma: um emitente vinculado pelo atalho
+  // pode estar fora da carteira da credencial de gestão do `.env`, e aí a de gestão levaria 404. A
+  // de gestão só entra antes disso, no onboarding, quando ainda não existe outra.
+  const credencialDeLeitura = operacional ?? config.gestao;
+
   let emitente: Emitente | null = null;
   let leituraFalhou: Resultado = null;
   if (cfg.emitenteId) {
     try {
-      emitente = (await cliente.lerEmitente(config.gestao, cfg.emitenteId)).corpo;
+      emitente = (await cliente.lerEmitente(credencialDeLeitura, cfg.emitenteId)).corpo;
     } catch (erro) {
       leituraFalhou = resultadoDeErro('Não consegui ler o emitente guardado', erro);
       if (erro instanceof ErroApi && erro.status === 404) leituraFalhou = { ...leituraFalhou!, detalhe: 'O id no banco local não existe mais na API, ou está fora da carteira desta credencial. Apague o banco local para recomeçar.' };
@@ -183,17 +266,20 @@ async function renderizar(ctx: Contexto, ultimo: Resultado): Promise<Resposta> {
   const corpo: Html = html`
 <h1>Emitente</h1>
 <p>Seis passos, na ordem que a API exige. Os quatro primeiros usam a credencial de <b>gestão</b> do <code>.env</code>; os dois últimos, a <b>operacional</b> que o passo 4 cunha.</p>
+<p>Se o emitente <b>já existe na plataforma</b> — cadastrado no painel, com certificado e com uma credencial operacional cunhada lá —, os passos de 1 a 4 já foram feitos: informe a credencial no <b>atalho do passo 1</b> e vá direto para a série.</p>
 ${resultado(ultimo)}
 ${resultado(leituraFalhou)}
 
 ${passo(1, 'Cadastrar o emitente', 'POST /v1/emitentes', 'de gestão', Boolean(emitente), emitente
   ? html`<p><b>${emitente.razao_social}</b> · CNPJ ${emitente.cnpj} · CRT ${emitente.crt} · ${emitente.municipio}/${emitente.uf} · ambiente <b>${emitente.ambiente}</b> · ${emitente.ativo ? 'ativo' : 'inativo (rascunho)'}</p><p>id <code>${emitente.id}</code></p>`
-  : formularioCadastro())}
+  : html`${formularioVinculo()}${formularioCadastro()}`)}
 
 ${passo(2, 'Subir o certificado A1', 'PUT /v1/emitentes/{id}/certificado', 'de gestão', temCert, emitente
   ? temCert
     ? html`<p>Titular ${emitente!.certificado!.titular ?? '(sem titular)'} · válido até ${emitente!.certificado!.valido_ate} · ${emitente!.certificado!.situacao} (${emitente!.certificado!.dias_para_expirar} dias)</p><form method="post" action="/emitente/certificado"><button>Substituir pelo .pfx do .env</button></form>`
-    : html`<p>Lê <code>${config.certificado.caminho}</code> e manda em base64 com a senha, num JSON. Limite perto de 64 KB.</p><form method="post" action="/emitente/certificado"><button>Enviar certificado</button></form>`
+    : config.certificado.caminho
+      ? html`<p>Lê <code>${config.certificado.caminho}</code> e manda em base64 com a senha, num JSON. Limite perto de 64 KB.</p><form method="post" action="/emitente/certificado"><button>Enviar certificado</button></form>`
+      : html`<p>Sem <code>CERTIFICADO_PFX</code> no <code>.env</code>, não há o que enviar. Preencha-o, ou suba o A1 pelo painel.</p>`
   : bloqueado('cadastre o emitente'))}
 
 ${passo(3, 'Ativar', 'PATCH /v1/emitentes/{id}  { "ativo": true }', 'de gestão', ativo, !emitente
@@ -228,9 +314,22 @@ function passo(n: number, titulo: string, rota: string, escopo: string, feito: b
 
 const bloqueado = (motivo: string): Html => html`<p><i>Antes, ${motivo}.</i></p>`;
 
+/** O atalho: a credencial operacional que o painel já cunhou, e a aplicação descobre o emitente. */
+function formularioVinculo(): Html {
+  return html`<h3>Já tenho o emitente cadastrado na plataforma</h3>
+<p>Informe a credencial <b>operacional</b> dele (painel › Credenciais &amp; Webhooks › tipo <b>Operacional</b>). A aplicação chama <span class="rota">GET /v1/contexto</span> para descobrir de quem ela é e <span class="rota">GET /v1/emitentes/{id}</span> para trazer a ficha; nada é criado na plataforma. Com isso, os passos 2, 3 e 4 já estão feitos.</p>
+<form method="post" action="/emitente/vincular"><div class="grid">
+<label>client_id<br><input name="client_id" required autocomplete="off"></label>
+<label>secret<br><input name="secret" type="password" required autocomplete="off"></label>
+</div><button>Buscar emitente pela credencial</button></form>
+<p>O <code>secret</code> fica em claro no banco local, como o da credencial cunhada no passo 4.</p>`;
+}
+
+/** O caminho longo: o emitente ainda não existe, e é a API que o cria. */
 function formularioCadastro(): Html {
   const campo = (nome: string, rotulo: string, extra = '') => html`<label>${rotulo}<br><input name="${nome}" ${bruto(extra)}></label>`;
-  return html`<p>Só os campos obrigatórios do <span class="rota">POST /v1/emitentes</span>, mais fantasia e telefone. O ambiente vai fixo em <b>homologacao</b>.</p>
+  return html`<h3>Ou cadastrar um emitente novo</h3>
+<p>Só os campos obrigatórios do <span class="rota">POST /v1/emitentes</span>, mais fantasia e telefone. O ambiente vai fixo em <b>homologacao</b>.</p>
 <form method="post" action="/emitente/cadastrar"><div class="grid">
 ${campo('cnpj', 'CNPJ (14 dígitos)', 'required')}
 ${campo('razao_social', 'Razão social', 'required')}

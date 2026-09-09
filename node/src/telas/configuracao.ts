@@ -36,7 +36,7 @@ export const telaConfiguracao: Rota = async ({ config, banco, cliente, chamadas 
   <div class="grid">
     <p><b>Endereço-base</b><br>${config.enderecoBase}</p>
     <p><b>Credencial de gestão</b><br><code>${config.gestao.clientId}</code> : <code>${mascarar(config.gestao.secret)}</code></p>
-    <p><b>Certificado</b><br><code>${config.certificado.caminho}</code></p>
+    <p><b>Certificado</b><br>${config.certificado.caminho ? html`<code>${config.certificado.caminho}</code>` : 'não configurado (só faz falta ao cadastrar um emitente novo)'}</p>
     <p><b>Banco local</b><br><code>${config.banco}</code></p>
   </div>
   <p>O ambiente não é configurado em lugar nenhum: a credencial é de um emitente, e o emitente é de um ambiente. O <span class="rota">GET /v1/contexto</span> abaixo diz qual.</p>
