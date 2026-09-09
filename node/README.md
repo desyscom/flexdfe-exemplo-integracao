@@ -6,7 +6,7 @@ Uma tela local, sem framework, que percorre o ciclo inteiro do emitente na API d
 
 ## Pré-requisitos
 
-- Node **22.18 ou mais novo** (o `npm start` roda `.ts` direto e usa `node:sqlite`).
+- Node **22.15 ou mais novo** (o `npm start` roda `.ts` direto e usa `node:sqlite`). O `node:sqlite` é estável desde a 22.13; a execução de `.ts` só deixa de precisar de flag na 22.18, e é por isso que os scripts passam `--experimental-strip-types`, inofensivo nas versões que já o dispensam.
 - Uma **credencial de gestão** do Flex DFe: no painel, em Credenciais & Webhooks, gere uma credencial **sem** escolher emitente. O `secret` aparece uma única vez.
 - O **certificado A1** (`.pfx`) do CNPJ que vai emitir, e a senha dele — **só** se você for cadastrar um emitente novo pela API. Se o emitente já existe no painel, com certificado e credencial operacional, não precisa: o atalho do passo 1 dispensa este pré-requisito.
 
@@ -34,7 +34,7 @@ Abra `http://localhost:3080`. Só escuta em `localhost`. O exemplo roda em **hom
 Para ver a tela funcionando **sem credencial nem certificado**, contra a API falsa dos testes:
 
 ```bash
-node --disable-warning=ExperimentalWarning test/demo.ts
+node --disable-warning=ExperimentalWarning --experimental-strip-types test/demo.ts
 ```
 
 ## O ciclo, passo a passo
