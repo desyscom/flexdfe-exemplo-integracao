@@ -1,10 +1,12 @@
 // O cliente da API do Flex DFe. Uma função por rota, nada além de montar a requisição e ler a
 // resposta. É o arquivo para portar quando o seu ERP fala outra linguagem.
 //
-// Três coisas que todas as rotas compartilham:
+// Quatro coisas que todas as rotas compartilham:
 //
 // 1. Autenticação é HTTP Basic sobre TLS: `Authorization: Basic base64(client_id:secret)`.
-//    Não há parâmetro de ambiente: a credencial é de um emitente, e o emitente é de um ambiente.
+//    A emissão não tem parâmetro de ambiente: a credencial é de um emitente, e a nota sai no ambiente dele,
+//    que muda no `PATCH /v1/emitentes/{id}`. As rotas de série aceitam um `ambiente` opcional, e sem ele
+//    operam no ambiente atual do emitente.
 // 2. Cada função recebe a credencial explicitamente. Isso torna visível qual ESCOPO cada rota
 //    exige: a de gestão (integrador) cadastra e cunha; a operacional (emitente) emite e provisiona série.
 // 3. Erros vêm em dois envelopes, separados pelo Content-Type e não pelo status HTTP:
@@ -114,7 +116,8 @@ export type CredencialCunhada = {
   secret: string;
 };
 
-export type Serie = { modelo: 55 | 65; serie: number; mode: 'managed' | 'external'; active: boolean; nextNumber?: number };
+/** A série é por ambiente: a série 1 de homologação e a de produção são duas, cada uma com o seu próximo número. */
+export type Serie = { ambiente: 'homologacao' | 'producao'; modelo: 55 | 65; serie: number; mode: 'managed' | 'external'; active: boolean; nextNumber?: number };
 
 export type Webhook = {
   url: string;
@@ -165,9 +168,13 @@ export type NotaDetalhe = RepresentacaoComando & {
  */
 export type AceiteOperacao = { id: string; status: string; links: { self?: string; nota: string } };
 
-/** `GET /v1/nfe/{id}/cancelamento`: a tentativa. Um cancelamento que falha também aparece aqui. */
+/**
+ * `GET /v1/nfe/{id}/cancelamento`: a tentativa. Um cancelamento que falha também aparece aqui. `reconciliando` e
+ * `pendente-registro` dizem que a SEFAZ já respondeu e a gravação do veredito se perdeu: no primeiro a plataforma
+ * o busca sozinha, no segundo não tem como, e é caso de suporte. Nos dois, não se reenvia.
+ */
 export type TentativaCancelamento = {
-  situacao: 'processando' | 'registrada' | 'rejeitada' | 'falha';
+  situacao: 'processando' | 'registrada' | 'rejeitada' | 'falha' | 'reconciliando' | 'pendente-registro';
   justificativa: string;
   protocolo: string | null;
   motivo: string | null;
@@ -175,10 +182,13 @@ export type TentativaCancelamento = {
   concluidaEm: string | null;
 };
 
-/** Uma carta do histórico `GET /v1/nfe/{id}/cce`. Só a `registrada` corrige; a vigente é a última delas. */
+/**
+ * Uma carta do histórico `GET /v1/nfe/{id}/cce`. Só a `registrada` corrige, e só ela tem DACCE; a vigente é a
+ * última delas. `reconciliando` e `pendente-registro` têm o mesmo sentido que na tentativa de cancelamento.
+ */
 export type CartaCorrecao = {
   id: string;
-  situacao: 'processando' | 'registrada' | 'rejeitada' | 'indeterminada' | 'falha';
+  situacao: 'processando' | 'registrada' | 'rejeitada' | 'indeterminada' | 'falha' | 'reconciliando' | 'pendente-registro';
   nSeq: number | null;
   texto: string;
   protocolo: string | null;
@@ -292,11 +302,15 @@ export function criarClienteApi(opcoes: Opcoes) {
 
     // ---- Operação: escopo de EMITENTE (credencial operacional). ----
 
-    /** Série `managed`: a plataforma numera, e a emissão não manda `numero`. Uma por emitente, modelo e série. */
+    /**
+     * Série `managed`: a plataforma numera, e a emissão não manda `numero`. Uma por emitente, ambiente, modelo e
+     * série. Sem `ambiente` no corpo, ela nasce no ambiente atual do emitente, que neste exemplo é homologação.
+     */
     provisionarSerie: (cred: Credencial, modelo: 55 | 65, serie: number) =>
       chamar<Serie>(cred, 'POST', '/v1/series', { modelo, serie, mode: 'managed' }),
 
-    listarSeries: (cred: Credencial) => chamar<{ series: Serie[] }>(cred, 'GET', '/v1/series'),
+    /** As séries de um ambiente: sem `?ambiente=`, as do ambiente atual. O corpo diz qual, mesmo com a lista vazia. */
+    listarSeries: (cred: Credencial) => chamar<{ ambiente: Serie['ambiente']; series: Serie[] }>(cred, 'GET', '/v1/series'),
 
     /**
      * Enfileira a emissão. `Idempotency-Key` é obrigatória: gere UMA por intenção de emissão e grave-a antes
@@ -346,6 +360,12 @@ export function criarClienteApi(opcoes: Opcoes) {
 
     /** O histórico das cartas, inclusive as que não corrigiram nada. Lista vazia quando não há nenhuma. */
     listarCce: (cred: Credencial, id: string) => chamar<{ dados: CartaCorrecao[] }>(cred, 'GET', `/v1/nfe/${id}/cce`),
+
+    /**
+     * O DACCE: o documento da carta, que o emitente entrega ao destinatário. É para a carta o que o DANFE é para a
+     * nota, e o DANFE não muda com a correção. Só a carta `registrada` tem; as outras são `409 nfe-dacce-unavailable`.
+     */
+    baixarDacce: (cred: Credencial, id: string, cartaId: string) => baixar(cred, `/v1/nfe/${id}/cce/${cartaId}/dacce`, 'application/pdf'),
 
     /**
      * Declara à SEFAZ que a faixa `nNFIni`–`nNFFin` de uma série não será usada. É passthrough: a borda confere a

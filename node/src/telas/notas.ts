@@ -10,16 +10,19 @@
 //   POST /v1/nfe/{id}/cancelamento     operacional  só na autorizada; justificativa 15–255; Idempotency-Key
 //   POST /v1/nfe/{id}/cce              operacional  só 55 autorizada; texto cumulativo 15–1000; Idempotency-Key
 //   GET  /v1/nfe/{id}/cce              operacional  o histórico das cartas
+//   GET  /v1/nfe/{id}/cce/{cartaId}/dacce  operacional  o DACCE: só da carta registrada; fora dela 409 nfe-dacce-unavailable
 //
 // O status desta tela é o LOCAL, e diz quem o pôs ali: a resposta da emissão (o `wait`), o feed ou o
 // webhook. A resposta da emissão grava só o `id` e o status inicial, e o desfecho quando o `wait` o traz;
 // a confirmação é sempre do feed ou do webhook.
 //
-// Dois terminais que se parecem e pedem o oposto:
+// Dois terminais que se parecem e se consertam em lugares diferentes:
 //   `failed`  a plataforma parou ANTES da SEFAZ (recusa antecipada, com o caminho do campo no motivo) ou
 //             esgotou as tentativas. O número segue livre: reemita com uma chave NOVA.
-//   `blocked` a nota pode existir na SEFAZ (duplicidade, número tomado). Reemitir criaria a segunda via
-//             do problema: só consultar, e chamar alguém.
+//   `blocked` a NUMERAÇÃO não deixou a nota sair. Se a SEFAZ acusou duplicidade, o motivo diz só a causa, e
+//             o caminho é revisar a numeração; se a série foi inativada, esgotou ou trocou de modo depois do
+//             aceite, o motivo diz também o ajuste. Os dois ajustes são fora da nota; feito o ajuste, a
+//             nota se emite de novo, em Nova nota.
 // A tela distingue os dois pelo `status`, nunca pelo texto do motivo.
 
 import { randomUUID } from 'node:crypto';
@@ -41,6 +44,9 @@ export const leiturasNotas: Record<string, Rota> = {
   xml: (ctx) => baixar(ctx, 'xml'),
   danfe: (ctx) => baixar(ctx, 'danfe'),
 };
+
+/** `GET /notas/:id/cce/:cartaId/dacce`: o DACCE de uma carta do histórico, pelo mesmo caminho do XML e do DANFE. */
+export const leituraDacce: Rota = (ctx) => baixar(ctx, 'dacce');
 
 /** `POST /notas/:id/<nome>`. As da emissão voltam à lista; as operações voltam ao detalhe. */
 export const acoesNotas: Record<string, Rota> = {
@@ -101,13 +107,14 @@ async function reenviar({ params, banco, cliente }: Contexto): Promise<Resultado
 /**
  * Reemitir é o caminho do `failed`: o mesmo corpo com uma chave NOVA, que a API trata como outra emissão.
  * A nota local que falhou fica no histórico; a nova nasce apontando para ela. Num `blocked` isso não é
- * oferecido: a nota pode existir na SEFAZ, e a segunda emissão viraria duplicidade.
+ * oferecido: o que barrou a nota foi a numeração, o ajuste acontece fora dela, e só quem opera sabe quando
+ * foi feito. Feito o ajuste, a nota se emite de novo em Nova nota.
  */
 async function reemitir({ params, banco, cliente }: Contexto): Promise<Resultado> {
   const nota = banco.lerNota(Number(params.id));
   const operacional = banco.credencialOperacional();
   if (!nota || !operacional) return { ok: false, titulo: 'Nota não encontrada ou credencial ausente' };
-  if (nota.status !== 'failed') return { ok: false, titulo: `Reemitir só depois de failed; a nota ${nota.id} está ${situacaoLocal(nota)}`, detalhe: nota.status === 'blocked' ? 'blocked não se reemite: a nota pode existir na SEFAZ. Consulte.' : undefined };
+  if (nota.status !== 'failed') return { ok: false, titulo: `Reemitir só depois de failed; a nota ${nota.id} está ${situacaoLocal(nota)}`, detalhe: nota.status === 'blocked' ? 'blocked não se reemite por aqui: a numeração não deixou a nota sair. Revise a numeração, se foi duplicidade, ou faça na série o ajuste que o motivo diz, e emita a nota de novo em Nova nota.' : undefined };
 
   const idempotencyKey = randomUUID();
   const novaId = banco.criarNotaPendente({ modelo: nota.modelo, serie: nota.serie, idempotencyKey, corpoEnviado: nota.corpoEnviado, reemitidaDe: nota.id });
@@ -120,16 +127,21 @@ async function reemitir({ params, banco, cliente }: Contexto): Promise<Resultado
   }
 }
 
-async function baixar({ params, banco, cliente, chamadas }: Contexto, tipo: 'xml' | 'danfe'): Promise<Resposta> {
+async function baixar({ params, banco, cliente, chamadas }: Contexto, tipo: 'xml' | 'danfe' | 'dacce'): Promise<Resposta> {
   const nota = banco.lerNota(Number(params.id));
   const operacional = banco.credencialOperacional();
   if (!nota?.commandId || !operacional) return { status: 404, texto: 'Nota sem comando na API, ou credencial ausente.' };
+  const base = nota.chave ?? nota.commandId;
   try {
-    const arquivo = tipo === 'xml' ? await cliente.baixarXml(operacional, nota.commandId) : await cliente.baixarDanfe(operacional, nota.commandId);
-    return { arquivo: { bytes: arquivo.bytes, contentType: arquivo.contentType, nome: arquivo.nome ?? `${nota.chave ?? nota.commandId}.${tipo === 'xml' ? 'xml' : 'pdf'}`, inline: tipo === 'danfe' } };
+    const arquivo =
+      tipo === 'xml' ? await cliente.baixarXml(operacional, nota.commandId)
+      : tipo === 'danfe' ? await cliente.baixarDanfe(operacional, nota.commandId)
+      : await cliente.baixarDacce(operacional, nota.commandId, params.cartaId);
+    const nomePadrao = tipo === 'xml' ? `${base}.xml` : tipo === 'danfe' ? `${base}.pdf` : `${base}-cce-${params.cartaId}.pdf`;
+    return { arquivo: { bytes: arquivo.bytes, contentType: arquivo.contentType, nome: arquivo.nome ?? nomePadrao, inline: tipo !== 'xml' } };
   } catch (erro) {
     // A API disse por que não há arquivo: 409 com o type. A tela mostra o envelope, não o esconde.
-    const r = resultadoDeErro(`${tipo === 'xml' ? 'XML' : 'DANFE'} da nota ${nota.id} indisponível`, erro);
+    const r = resultadoDeErro(`${{ xml: 'XML', danfe: 'DANFE', dacce: 'DACCE' }[tipo]} da nota ${nota.id} indisponível`, erro);
     return { status: 409, html: pagina('Notas', '/notas', html`<h1>Notas</h1>${resultado(r)}<p><a href="/notas">Voltar</a></p>`, chamadas) };
   }
 }
@@ -252,8 +264,8 @@ async function carta(ctx: Contexto): Promise<Resultado> {
 
 /**
  * A situação que a tela mostra. `failed` e `blocked` vêm primeiro, porque é o `status` que os distingue:
- * a `situacao` da API diz `pendente` para um e `bloqueada` para o outro, e o primeiro precisa aparecer
- * como o que é, uma falha que se reemite. Fora deles, vale a `situacao` lida da API; antes de ela ser lida,
+ * a `situacao` da API diz `bloqueada` para os dois, e o primeiro precisa aparecer como o que é, uma falha
+ * que se reemite. Fora deles, vale a `situacao` lida da API; antes de ela ser lida,
  * o par (status, outcome) da resposta da emissão, com os mesmos nomes que a API usa.
  */
 export function situacaoLocal(n: Nota): string {
@@ -281,9 +293,9 @@ export const permiteXml = (n: Nota): boolean => situacaoLocal(n) === 'autorizada
 export const permiteDanfe = (n: Nota): boolean => ['autorizada', 'cancelada'].includes(situacaoLocal(n));
 /** Reenviar (mesma chave) só faz sentido enquanto a nota não tem desfecho: sem resposta, ou ainda em voo. */
 export const permiteReenviar = (n: Nota): boolean => !n.status || !ehTerminal(n.status);
-/** Reemitir (chave nova) é só para `failed`. `blocked` não: a nota pode existir na SEFAZ. */
+/** Reemitir (chave nova) é só para `failed`. `blocked` não: o ajuste é na numeração ou na série, fora da nota. */
 export const permiteReemitir = (n: Nota): boolean => n.status === 'failed';
-/** Consultar vale para qualquer nota que a API conhece: é não-destrutivo, e é o único caminho do `blocked`. */
+/** Consultar vale para qualquer nota que a API conhece: é não-destrutivo. */
 export const permiteConsultar = (n: Nota): boolean => n.commandId !== null;
 export const permiteCancelar = (n: Nota): boolean => situacaoLocal(n) === 'autorizada';
 /** Carta só na NF-e (55) autorizada. A NFC-e (65) não tem o instrumento. */
@@ -314,7 +326,7 @@ function linha(n: Nota): Html {
   <td>
     ${(n.status === 'failed' || n.status === 'blocked') && motivo ? html`<p class="motivo"><b>motivo:</b> ${motivo}</p>` : vazio}
     ${n.status === 'failed' ? html`<p><small>failed: a plataforma parou antes da SEFAZ ou esgotou as tentativas. O número segue livre; reemita com chave nova.</small></p>` : vazio}
-    ${n.status === 'blocked' ? html`<p><small>blocked: a nota pode existir na SEFAZ. Não reemita: consulte, e chame alguém.</small></p>` : vazio}
+    ${n.status === 'blocked' ? html`<p><small>blocked: a numeração não deixou a nota sair. Revise a numeração, se foi duplicidade, ou faça na série o ajuste que o motivo diz, e emita a nota de novo em Nova nota.</small></p>` : vazio}
     ${permiteXml(n) ? html`<a href="/notas/${n.id}/xml">XML</a> ` : vazio}
     ${permiteDanfe(n) ? html`<a href="/notas/${n.id}/danfe">DANFE</a> ` : vazio}
     ${permiteCancelar(n) ? html`<a href="/notas/${n.id}#cancelar">Cancelar</a> ` : vazio}
@@ -359,9 +371,10 @@ ${resultado(erroLeitura)}
   <h2>Situação local: <b>${situacao}</b> <small>(${nota.confirmadoPor ? `confirmada por ${nota.confirmadoPor}` : nota.status ? 'do wait, aguardando o feed' : 'a chamada não voltou'})</small></h2>
   <p>Comando <code>${nota.commandId ?? '-'}</code> · chave <code>${nota.chave ?? '-'}</code> · protocolo <code>${nota.protocolo ?? '-'}</code> · Idempotency-Key <code>${nota.idempotencyKey}</code>${nota.reemitidaDe ? html` · reemissão da <a href="/notas/${nota.reemitidaDe}">nota ${nota.reemitidaDe}</a>` : vazio}</p>
   ${detalhe ? html`<p>Na API agora: <b>${detalhe.situacao}</b> (status ${detalhe.status}${detalhe.outcome ? ' / ' + detalhe.outcome : ''}, ${detalhe.attempts} tentativa(s))${detalhe.canceladaEm ? html`; cancelada em ${detalhe.canceladaEm}, protocolo <code>${detalhe.protocoloCancelamento ?? '-'}</code>, justificativa "${detalhe.justificativaCancelamento ?? ''}"` : vazio}.</p>` : vazio}
+  ${detalhe?.situacao === 'reconciliando' ? html`<p><b>reconciliando</b>: a SEFAZ já autorizou a nota, e um erro interno abortou a gravação do desfecho na plataforma. <b>Espere e releia</b>: a plataforma refaz a gravação sozinha, e a nota vira autorizada. Enquanto isso ela não cancela nem corrige, e emitir de novo, com chave nova, criaria uma segunda nota para a mesma venda. Parada assim por muito tempo, é caso de suporte.</p>` : vazio}
   ${motivo ? html`<p class="motivo"><b>motivo:</b> ${motivo}</p>` : vazio}
   ${nota.status === 'failed' ? html`<p><b>failed</b>: a plataforma parou antes da SEFAZ (recusa antecipada, e o motivo traz o caminho do campo) ou esgotou as tentativas. O número segue livre. O caminho é <b>reemitir com chave nova</b>: <form method="post" action="/notas/${nota.id}/reemitir" style="display:inline"><button>Reemitir (chave nova)</button></form></p>` : vazio}
-  ${nota.status === 'blocked' ? html`<p><b>blocked</b>: a nota pode existir na SEFAZ (duplicidade, número tomado). Reemitir criaria a segunda via do problema. O caminho é <b>consultar</b> e chamar alguém.</p>` : vazio}
+  ${nota.status === 'blocked' ? html`<p><b>blocked</b>: a <b>numeração</b> não deixou a nota sair, e o motivo diz por quê. Se a SEFAZ acusou duplicidade, revise a numeração antes de emitir de novo. Se a série foi inativada, esgotou ou trocou de modo depois do aceite, o motivo diz também o ajuste. Os dois ajustes são fora da nota; feito o ajuste, emita a nota de novo em <a href="/nova-nota">Nova nota</a>. Esta tela não reemite um blocked, e reenviar com a mesma chave só devolveria a nota bloqueada.</p>` : vazio}
 </section>
 
 <section id="consultar">
@@ -392,9 +405,9 @@ ${resultado(erroLeitura)}
     <button>Enviar a carta</button>
   </form>`
       : html`<p>Não oferecido: a nota está <b>${situacao}</b>, e só a autorizada corrige (a API responderia 409 nfe-not-correctable).</p>`}
-  ${cartas.length > 0 ? html`<h3>Histórico das cartas</h3><table><tr><th>nSeq</th><th>situação</th><th>texto</th><th>protocolo</th><th>motivo</th><th>registrada em</th></tr>
-  ${cartas.map((c) => html`<tr><td>${c.nSeq ?? '-'}</td><td><b>${c.situacao}</b></td><td>${c.texto}</td><td><code>${c.protocolo ?? '-'}</code></td><td>${c.motivo ?? '-'}</td><td>${c.registradaEm ?? '-'}</td></tr>`)}</table>
-  <p><small>A vigente é a última <b>registrada</b>. As rejeitadas, as falhas e as indeterminadas ficam no histórico para o desfecho não se perder.</small></p>` : nota.modelo === 55 ? html`<p><small>Nenhuma carta ainda.</small></p>` : vazio}
+  ${cartas.length > 0 ? html`<h3>Histórico das cartas <span class="rota">GET /v1/nfe/{id}/cce/{cartaId}/dacce</span></h3><table><tr><th>nSeq</th><th>situação</th><th>texto</th><th>protocolo</th><th>motivo</th><th>registrada em</th><th>documento</th></tr>
+  ${cartas.map((c) => html`<tr><td>${c.nSeq ?? '-'}</td><td><b>${c.situacao}</b></td><td>${c.texto}</td><td><code>${c.protocolo ?? '-'}</code></td><td>${c.motivo ?? '-'}</td><td>${c.registradaEm ?? '-'}</td><td>${c.situacao === 'registrada' ? html`<a href="/notas/${nota.id}/cce/${c.id}/dacce">DACCE</a>` : '-'}</td></tr>`)}</table>
+  <p><small>A vigente é a última <b>registrada</b>, e só a registrada tem DACCE, o documento da carta que o emitente entrega ao destinatário; o DANFE da nota não muda com a correção. As rejeitadas, as falhas e as indeterminadas ficam no histórico para o desfecho não se perder. <b>reconciliando</b> e <b>pendente-registro</b> dizem que a SEFAZ já respondeu e um erro interno abortou a gravação: não envie a carta de novo, que o fato já existe no fisco; na primeira a plataforma busca o protocolo sozinha, na segunda é caso de suporte.</small></p>` : nota.modelo === 55 ? html`<p><small>Nenhuma carta ainda.</small></p>` : vazio}
 </section>
 
 <section>
