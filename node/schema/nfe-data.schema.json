@@ -1,5 +1,5 @@
 {
-  "$comment": "Copiado do flex-dfe na tag v0.1.0 (apps/api/openapi/nfe-data.schema.json) em 06/09/2026. Nao edite: substitua pela copia da tag seguinte quando o contrato mudar.",
+  "$comment": "Copiado do flex-dfe na tag v0.3.1 (apps/api/openapi/nfe-data.schema.json) em 12/09/2026. Nao edite: substitua pela copia da tag seguinte quando o contrato mudar.",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "x-proveniencia": {
     "gerado": "Artefato gerado automaticamente — NÃO EDITAR À MÃO.",
@@ -121,8 +121,10 @@
             2,
             3,
             4,
-            5
-          ]
+            5,
+            6
+          ],
+          "description": "Formato de impressão do DANFE (B21): `0` sem DANFE, `1` retrato, `2` paisagem, `3` simplificado, `4` DANFE NFC-e, `5` DANFE NFC-e em mensagem eletrônica, `6` DANFE Simplificado - Etiqueta. O `6` imprime uma **etiqueta**, formato voltado à venda a consumidor final em comércio eletrônico e telemarketing: papel de largura mínima 55 mm, a chave de acesso com o seu **código de barras**, os dados do emitente e do destinatário, o valor total e o protocolo de autorização. Ele **leva QR Code**, e o grupo `infNFeSupl` é obrigatório na nota que o usa; a URL de consulta é a mesma da NFC-e do estado. A forma impressa segue a **NT 2020.004**, que especifica o DANFE Simplificado - Etiqueta do Ajuste SINIEF 07/05. O valor `6` em si vem do **Ajuste SINIEF 13/26**, regulamentado pela **NT 2026.002**, de onde vem também a obrigatoriedade do QR Code. Os valores `2` e `3` são transcritos no XML, mas a impressão ainda sai no mesmo retrato do `1`."
         },
         "finNFe": {
           "type": "number",
@@ -184,9 +186,10 @@
             "02",
             "03",
             "04",
-            "05"
+            "05",
+            "06"
           ],
-          "description": "`tpNFCredito` (XSD `TTpNFCredito`) — tipo de nota de crédito (`01`–`05`), associado à `finNFe=5`. Ausente ⇒ omitido."
+          "description": "`tpNFCredito` (XSD `TTpNFCredito`) — tipo de nota de crédito (`01`–`06`, sendo `06` o retorno por recusa parcial na entrega), associado à `finNFe=5`. Ausente ⇒ omitido."
         },
         "gCompraGov": {
           "$ref": "#/definitions/CompraGov",
@@ -317,7 +320,9 @@
             "1",
             "2",
             "3",
-            "4"
+            "4",
+            "5",
+            "6"
           ]
         },
         "pRedutor": {
@@ -327,7 +332,9 @@
           "type": "string",
           "enum": [
             "1",
-            "2"
+            "2",
+            "3",
+            "4"
           ]
         }
       },
@@ -337,7 +344,7 @@
         "tpOperGov"
       ],
       "additionalProperties": false,
-      "description": "Grupo **`gCompraGov`** (XSD `TCompraGov`) do `ide` — **compra governamental**: identifica o ente governamental adquirente (`tpEnteGov`: 1=União, 2=Estados, 3=DF, 4=Municípios), o percentual de redução de alíquota (`pRedutor`) e o tipo da operação (`tpOperGov`: 1=Fornecimento, 2=Recebimento do Pagamento). **transcritos**. Presence-driven: informado ⇒ emite `<gCompraGov>`; ausente ⇒ omitido. O `tpOperGov` é **obrigatório** no `TCompraGov` do `ide` (XSD), por isso não é opcional."
+      "description": "Grupo **`gCompraGov`** (XSD `TCompraGov`) do `ide` — **compra governamental**: identifica o ente governamental adquirente (`tpEnteGov`: 1=União, 2=Estados, 3=DF, 4=Municípios, 5=Consórcio Público, 6=Comitê Gestor do IBS), o percentual de redução de alíquota (`pRedutor`) e o tipo da operação (`tpOperGov`: 1=Fornecimento com pagamento posterior, 2=Recebimento do pagamento com fornecimento já realizado, 3=Fornecimento com pagamento já realizado, 4=Recebimento do pagamento com fornecimento posterior). **transcritos**. Presence-driven: informado ⇒ emite `<gCompraGov>`; ausente ⇒ omitido. O `tpOperGov` é **obrigatório** no `TCompraGov` do `ide` (XSD), por isso não é opcional."
     },
     "PagAntecipado": {
       "type": "object",
@@ -1771,9 +1778,9 @@
         "vIS": {
           "type": "number"
         },
-        "pISEspec": {
+        "adRemIS": {
           "type": "number",
-          "description": "Alíquota do IS por valor (específica), opcional depois de `pIS`. XSD `pISEspec` (`TDec_0302_04RTC`)."
+          "description": "Alíquota ad rem do IS (por unidade), opcional depois de `pIS`. XSD `adRemIS` (`TDec_0302_04RTC`)."
         },
         "uTrib": {
           "type": "string",
@@ -1792,7 +1799,7 @@
         "vIS"
       ],
       "additionalProperties": false,
-      "description": "Grupo `IS` (Imposto Seletivo) do item (XSD `TIS`), **transcrito**: `CST`/`cClassTrib` do IS + base/alíquota/valor. Presence-driven sob o mesmo gate de data da reforma; **não** é obrigatório (incide só sobre bens/serviços específicos), então ausente não gera issue. Tags: `CSTIS`/`cClassTribIS`/ `vBCIS`/`pIS`/`vIS`. `pISEspec` (alíquota por valor, opcional depois de `pIS`) e o par `uTrib`/`qTrib` (unidade de medida + quantidade de apuração do IS, sequência opcional) são campos opcionais do `TIS`, transcritos crus e **total-neutros** (o `ISTot` só tem `vIS`, já agregado). Ausentes ⇒ omitidos."
+      "description": "Grupo `IS` (Imposto Seletivo) do item (XSD `TIS`), **transcrito**: `CST`/`cClassTrib` do IS + base/alíquota/valor. Presence-driven sob o mesmo gate de data da reforma; **não** é obrigatório (incide só sobre bens/serviços específicos), então ausente não gera issue. Tags: `CSTIS`/`cClassTribIS`/ `vBCIS`/`pIS`/`vIS`. `adRemIS` (alíquota ad rem, opcional depois de `pIS`) e o par `uTrib`/`qTrib` (unidade de medida + quantidade de apuração do IS, sequência opcional) são campos opcionais do `TIS`, transcritos crus e **total-neutros** (o `ISTot` só tem `vIS`, já agregado). Ausentes ⇒ omitidos. O campo se chamava `pISEspec` até o PL_010b; o **PL_010f** (NT 2025.002 v1.50) o renomeou para `adRemIS`, alinhando o nome ao que ele sempre foi — alíquota **ad rem**, por unidade, não um percentual. Mesma posição na sequência, mesmo tipo (`TDec_0302_04RTC`) — só o nome mudou."
     },
     "IbsCbsClassificacao": {
       "anyOf": [
@@ -2171,20 +2178,21 @@
     "IbsCbsMonofasia": {
       "type": "object",
       "properties": {
-        "gMonoPadrao": {
-          "$ref": "#/definitions/IbsCbsMonoPadrao"
+        "gIBSMonoAdRem": {
+          "$ref": "#/definitions/IbsMonoAdRem",
+          "description": "Eixo IBS, modo **ad rem**; exclusivo com `IbsCbsMonofasia.gIBSMonoAdValorem`."
         },
-        "gMonoReten": {
-          "$ref": "#/definitions/IbsCbsMonoReten",
-          "description": "`gMonoReten`: monofasia sujeita a retenção; os `v*MonoReten` agregam no `gMono` do total."
+        "gIBSMonoAdValorem": {
+          "$ref": "#/definitions/IbsMonoAdValorem",
+          "description": "Eixo IBS, modo **ad valorem**; exclusivo com `IbsCbsMonofasia.gIBSMonoAdRem`."
         },
-        "gMonoRet": {
-          "$ref": "#/definitions/IbsCbsMonoRet",
-          "description": "`gMonoRet`: monofasia retida anteriormente; os `v*MonoRet` agregam no `gMono` do total."
+        "gCBSMonoAdRem": {
+          "$ref": "#/definitions/CbsMonoAdRem",
+          "description": "Eixo CBS, modo **ad rem**; exclusivo com `IbsCbsMonofasia.gCBSMonoAdValorem`."
         },
-        "gMonoDif": {
-          "$ref": "#/definitions/IbsCbsMonoDif",
-          "description": "`gMonoDif`: diferimento da monofasia; total-neutro (sem campo no `gMono`)."
+        "gCBSMonoAdValorem": {
+          "$ref": "#/definitions/CbsMonoAdValorem",
+          "description": "Eixo CBS, modo **ad valorem**; exclusivo com `IbsCbsMonofasia.gCBSMonoAdRem`."
         },
         "vTotIBSMonoItem": {
           "type": "number"
@@ -2194,124 +2202,295 @@
         }
       },
       "required": [
-        "gMonoPadrao",
         "vTotIBSMonoItem",
         "vTotCBSMonoItem"
       ],
       "additionalProperties": false,
-      "description": "Valores do `gIBSCBSMono` (XSD `TMonofasia`, CST 620): o ramo **monofásico** da choice do `TTribNFe`. Os três ramos opcionais entram na ordem do XSD (entre o `gMonoPadrao` e os totais de item), presence-driven. Mutuamente exclusivo com o `IbsCbsValores` (`gIBSCBS`) — a *choice* do XSD."
+      "description": "Valores do `gIBSCBSMono` (XSD `TMonofasia`, CST 620). Mutuamente exclusivo com o `IbsCbsValores` (`gIBSCBS`). **Reestruturado no PL_010f.** Até o PL_010b a monofasia era um bloco plano em que IBS e CBS dividiam os mesmos sub-grupos (`gMonoPadrao` com `adRemIBS` *e* `adRemCBS`, e assim por diante). O PL_010f separou em **dois eixos independentes** — IBS e CBS, e deu a cada um a escolha entre **ad rem** (alíquota por unidade) e **ad valorem** (percentual sobre base). Os dois eixos são opcionais e escolhem seu modo separadamente: uma operação pode ser ad rem no IBS e ad valorem na CBS. O `gMonoDif` do PL_010b **não tem sucessor** — o diferimento da monofasia saiu do leiaute, e o `gpBioDiferenca` que entrou no lugar não é o mesmo conceito (é diferença de tributação de biocombustível, não diferimento). Os dois totais de item (`vTotIBSMonoItem`/`vTotCBSMonoItem`) seguem obrigatórios, e o bloco `gMono` do `IBSCBSTot` não mudou: continua agregando os seis `v*Mono`/`v*MonoReten`/`v*MonoRet`, agora colhidos do modo que o eixo escolheu."
     },
-    "IbsCbsMonoPadrao": {
+    "IbsMonoAdRem": {
       "type": "object",
       "properties": {
-        "qBCMono": {
-          "type": "number"
+        "gMonoPadrao": {
+          "type": "object",
+          "properties": {
+            "qBCMono": {
+              "type": "number"
+            },
+            "adRemIBS": {
+              "type": "number"
+            },
+            "vIBSMono": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "qBCMono",
+            "adRemIBS",
+            "vIBSMono"
+          ],
+          "additionalProperties": false
         },
-        "adRemIBS": {
-          "type": "number"
+        "gMonoReten": {
+          "type": "object",
+          "properties": {
+            "qBCMonoReten": {
+              "type": "number"
+            },
+            "adRemIBSReten": {
+              "type": "number"
+            },
+            "vIBSMonoReten": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "qBCMonoReten",
+            "adRemIBSReten",
+            "vIBSMonoReten"
+          ],
+          "additionalProperties": false
         },
-        "adRemCBS": {
-          "type": "number"
+        "gMonoRet": {
+          "$ref": "#/definitions/IbsMonoRet"
         },
-        "vIBSMono": {
-          "type": "number"
-        },
-        "vCBSMono": {
-          "type": "number"
+        "gpBioDiferenca": {
+          "$ref": "#/definitions/IbsMonoBioDiferenca"
         }
       },
-      "required": [
-        "qBCMono",
-        "adRemIBS",
-        "adRemCBS",
-        "vIBSMono",
-        "vCBSMono"
-      ],
       "additionalProperties": false,
-      "description": "`gMonoPadrao` (XSD `TMonofasia`): a tributação monofásica **padrão** (combustível, CST 620), **transcrita** — quantidade tributada (`qBCMono`) + alíquotas ad rem (`adRemIBS`/`adRemCBS`, apuradas a montante) + os valores (`vIBSMono`/`vCBSMono`). Os ramos opcionais `gMonoReten`/`gMonoRet`/`gMonoDif` são irmãos deste no `IbsCbsMonofasia`."
+      "description": "**`gIBSMonoAdRem`** (XSD `TMonofasia`) — o eixo do **IBS** tributado **ad rem**: alíquota por *unidade* (R$/litro), aplicada sobre a quantidade `qBCMono`. É o modo clássico do combustível, e o único que o PL_010b conhecia — lá, porém, IBS e CBS dividiam um `gMonoPadrao` só. O PL_010f separou os eixos, e cada um passou a escolher entre ad rem e ad valorem (`IbsMonoAdValorem`) — daí um eixo não obrigar o outro ao mesmo modo. Todos os sub-grupos são **opcionais** e transcritos. `vIBSMono` e `vIBSMonoReten`/`vIBSMonoRet` agregam no `gMono` do `IBSCBSTot`; o `gpBioDiferenca` é total-neutro."
     },
-    "IbsCbsMonoReten": {
+    "IbsMonoRet": {
       "type": "object",
       "properties": {
-        "qBCMonoReten": {
-          "type": "number"
-        },
-        "adRemIBSReten": {
-          "type": "number"
-        },
-        "vIBSMonoReten": {
-          "type": "number"
-        },
-        "adRemCBSReten": {
-          "type": "number"
-        },
-        "vCBSMonoReten": {
-          "type": "number"
-        }
-      },
-      "required": [
-        "qBCMonoReten",
-        "adRemIBSReten",
-        "vIBSMonoReten",
-        "adRemCBSReten",
-        "vCBSMonoReten"
-      ],
-      "additionalProperties": false,
-      "description": "**Carrega valor**: os dois `v*MonoReten` **agregam** no bloco `gMono` do `IBSCBSTot` (flip de `totZero`, como o `vIBSMono` da A.1). Os campos seguem a ordem **intercalada** do XSD (IBS antes da CBS por par). Presence-driven: ausente ⇒ omitido."
-    },
-    "IbsCbsMonoRet": {
-      "type": "object",
-      "properties": {
-        "qBCMonoRet": {
-          "type": "number"
-        },
-        "adRemIBSRet": {
-          "type": "number"
-        },
         "vIBSMonoRet": {
           "type": "number"
-        },
-        "adRemCBSRet": {
+        }
+      },
+      "required": [
+        "vIBSMonoRet"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gMonoRet`** de um eixo (XSD `TMonofasia` → `g<Nat>Mono*` → `gMonoRet`) — a parcela **retida anteriormente** (revenda de combustível já tributado a montante). Só o valor: o PL_010f tirou daqui a quantidade e a alíquota que o PL_010b pedia, porque o que foi retido a montante já não tem base própria a declarar. **Carrega valor**: agrega no `gMono` do `IBSCBSTot`. Idêntico nos dois modos (ad rem e ad valorem) do mesmo eixo, e por isso reusado pelos dois. Presence-driven: ausente ⇒ omitido."
+    },
+    "IbsMonoBioDiferenca": {
+      "type": "object",
+      "properties": {
+        "qBCBioComb": {
           "type": "number"
         },
+        "vIBSDiferenca": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "qBCBioComb",
+        "vIBSDiferenca"
+      ],
+      "additionalProperties": false,
+      "description": "Sub-grupo **`gpBioDiferenca`** de um eixo (XSD `TMonofasia` → `g<Nat>Mono*` → `gpBioDiferenca`), **novo no PL_010f**: a diferença de tributação do **biocombustível** — quantidade de base (`qBCBioComb`) + o valor da diferença. **Total-neutro** (o `gMono` do `IBSCBSTot` não tem campo de diferença), como era o extinto `gMonoDif`. Idêntico nos dois modos do mesmo eixo. Presence-driven: ausente ⇒ omitido."
+    },
+    "IbsMonoAdValorem": {
+      "type": "object",
+      "properties": {
+        "gMonoPadrao": {
+          "type": "object",
+          "properties": {
+            "vBCMono": {
+              "type": "number"
+            },
+            "pAliqMonoUF": {
+              "type": "number"
+            },
+            "vIBSMonoUF": {
+              "type": "number"
+            },
+            "pAliqMonoMun": {
+              "type": "number"
+            },
+            "vIBSMonoMun": {
+              "type": "number"
+            },
+            "vIBSMono": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "vBCMono",
+            "pAliqMonoUF",
+            "vIBSMonoUF",
+            "pAliqMonoMun",
+            "vIBSMonoMun",
+            "vIBSMono"
+          ],
+          "additionalProperties": false
+        },
+        "gMonoReten": {
+          "type": "object",
+          "properties": {
+            "vBCMonoReten": {
+              "type": "number"
+            },
+            "pAliqMonoReten": {
+              "type": "number"
+            },
+            "vIBSMonoReten": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "vBCMonoReten",
+            "pAliqMonoReten",
+            "vIBSMonoReten"
+          ],
+          "additionalProperties": false
+        },
+        "gMonoRet": {
+          "$ref": "#/definitions/IbsMonoRet"
+        },
+        "gpBioDiferenca": {
+          "$ref": "#/definitions/IbsMonoBioDiferenca"
+        }
+      },
+      "additionalProperties": false,
+      "description": "**`gIBSMonoAdValorem`** (XSD `TMonofasia`) — o eixo do **IBS** tributado **ad valorem**: alíquota percentual sobre a base `vBCMono`, repartida entre UF (`pAliqMonoUF`) e Município (`pAliqMonoMun`), com o `vIBSMono` fechando a soma das duas parcelas. **Novo no PL_010f**; mutuamente exclusivo com `IbsMonoAdRem` (choice do XSD, não policiada inline — o XSD é a autoridade, como em `gCredPresOper`×`gCredPresIBSZFM`)."
+    },
+    "CbsMonoAdRem": {
+      "type": "object",
+      "properties": {
+        "gMonoPadrao": {
+          "type": "object",
+          "properties": {
+            "qBCMono": {
+              "type": "number"
+            },
+            "adRemCBS": {
+              "type": "number"
+            },
+            "vCBSMono": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "qBCMono",
+            "adRemCBS",
+            "vCBSMono"
+          ],
+          "additionalProperties": false
+        },
+        "gMonoReten": {
+          "type": "object",
+          "properties": {
+            "qBCMonoReten": {
+              "type": "number"
+            },
+            "adRemCBSReten": {
+              "type": "number"
+            },
+            "vCBSMonoReten": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "qBCMonoReten",
+            "adRemCBSReten",
+            "vCBSMonoReten"
+          ],
+          "additionalProperties": false
+        },
+        "gMonoRet": {
+          "$ref": "#/definitions/CbsMonoRet"
+        },
+        "gpBioDiferenca": {
+          "$ref": "#/definitions/CbsMonoBioDiferenca"
+        }
+      },
+      "additionalProperties": false,
+      "description": "**`gCBSMonoAdRem`**: o `IbsMonoAdRem` no eixo da **CBS** — mesma forma, folhas com o nome da natureza."
+    },
+    "CbsMonoRet": {
+      "type": "object",
+      "properties": {
         "vCBSMonoRet": {
           "type": "number"
         }
       },
       "required": [
-        "qBCMonoRet",
-        "adRemIBSRet",
-        "vIBSMonoRet",
-        "adRemCBSRet",
         "vCBSMonoRet"
       ],
       "additionalProperties": false,
-      "description": "Sub-grupo **`gMonoRet`** (XSD `TMonofasia` → `gMonoRet`) — **monofasia retida anteriormente** (revenda de combustível retido a montante): quantidade (`qBCMonoRet`) + ad rem (`adRemIBSRet`/`adRemCBSRet`) + valores (`vIBSMonoRet`/`vCBSMonoRet`), **transcritos**. **Carrega valor**: os dois `v*MonoRet` **agregam** no bloco `gMono` do `IBSCBSTot` (flip de `totZero`). Ordem intercalada do XSD. Presence-driven: ausente ⇒ omitido."
+      "description": "`IbsMonoRet` no eixo da CBS."
     },
-    "IbsCbsMonoDif": {
+    "CbsMonoBioDiferenca": {
       "type": "object",
       "properties": {
-        "pDifIBS": {
+        "qBCBioComb": {
           "type": "number"
         },
-        "vIBSMonoDif": {
-          "type": "number"
-        },
-        "pDifCBS": {
-          "type": "number"
-        },
-        "vCBSMonoDif": {
+        "vCBSDiferenca": {
           "type": "number"
         }
       },
       "required": [
-        "pDifIBS",
-        "vIBSMonoDif",
-        "pDifCBS",
-        "vCBSMonoDif"
+        "qBCBioComb",
+        "vCBSDiferenca"
       ],
       "additionalProperties": false,
-      "description": "Sub-grupo **`gMonoDif`** (XSD `TMonofasia` → `gMonoDif`) — **diferimento da monofasia**: percentuais diferidos (`pDifIBS`/`pDifCBS`) + os valores diferidos (`vIBSMonoDif`/`vCBSMonoDif`), **transcritos**. É **total-neutro** — não há campo de diferimento mono no `gMono` do total (espelha o `IbsCbsReducao`): transcrito, sem agregar. Ordem intercalada do XSD (IBS antes da CBS). Presence-driven: ausente ⇒ omitido."
+      "description": "`IbsMonoBioDiferenca` no eixo da CBS."
+    },
+    "CbsMonoAdValorem": {
+      "type": "object",
+      "properties": {
+        "gMonoPadrao": {
+          "type": "object",
+          "properties": {
+            "vBCMono": {
+              "type": "number"
+            },
+            "pAliqMonoCBS": {
+              "type": "number"
+            },
+            "vCBSMono": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "vBCMono",
+            "pAliqMonoCBS",
+            "vCBSMono"
+          ],
+          "additionalProperties": false
+        },
+        "gMonoReten": {
+          "type": "object",
+          "properties": {
+            "vBCMonoReten": {
+              "type": "number"
+            },
+            "pAliqMonoReten": {
+              "type": "number"
+            },
+            "vCBSMonoReten": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "vBCMonoReten",
+            "pAliqMonoReten",
+            "vCBSMonoReten"
+          ],
+          "additionalProperties": false
+        },
+        "gMonoRet": {
+          "$ref": "#/definitions/CbsMonoRet"
+        },
+        "gpBioDiferenca": {
+          "$ref": "#/definitions/CbsMonoBioDiferenca"
+        }
+      },
+      "additionalProperties": false,
+      "description": "**`gCBSMonoAdValorem`**: o `IbsMonoAdValorem` no eixo da **CBS**. Uma alíquota só (`pAliqMonoCBS`) — a CBS é federal e não se reparte entre UF e Município, então o `gMonoPadrao` daqui é mais curto que o do IBS."
     },
     "IbsCbsClassificacaoTransf": {
       "type": "object",

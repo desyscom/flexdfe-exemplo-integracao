@@ -1,8 +1,8 @@
 # Exemplo em Node
 
-Uma tela local, sem framework, que percorre o ciclo inteiro do emitente na API do Flex DFe: cadastro, certificado, série, emissão de NF-e e NFC-e, feed, webhook, XML, DANFE, consulta, cancelamento, carta de correção e inutilização. TypeScript executado direto pelo Node, sem build; SQLite pelo módulo nativo, sem nada para compilar.
+Uma tela local, sem framework, que percorre o ciclo inteiro do emitente na API do Flex DFe: cadastro, certificado, série, emissão de NF-e e NFC-e, feed, webhook, XML, DANFE, consulta, cancelamento, carta de correção com o DACCE e inutilização. TypeScript executado direto pelo Node, sem build; SQLite pelo módulo nativo, sem nada para compilar.
 
-> Testado contra a API na tag **v0.1.0**. Se a Referência em `/docs` mudou depois disso, o que está aqui pode ter envelhecido. Não há CI nem smoke automatizado: a tag é a única defesa, junto com os testes contra a API falsa, que só pegam a divergência quando o schema copiado for atualizado.
+> Testado contra a API na tag **v0.1.0**. Se a Referência em `/docs` mudou depois disso, o que está aqui pode ter envelhecido. Não há CI nem smoke automatizado: a tag é a única defesa, junto com os testes, que só pegam a divergência depois que a API falsa for atualizada a partir da Referência.
 
 ## Pré-requisitos
 
@@ -41,7 +41,7 @@ node --disable-warning=ExperimentalWarning --experimental-strip-types test/demo.
 
 Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela em `src/telas/`, e cada página lista no rodapé as chamadas que fez, com status e tempo.
 
-1. **Configuração** mostra o que veio do `.env` e chama `GET /v1/contexto` para provar a credencial e o escopo. Não há parâmetro de ambiente em lugar nenhum: a credencial é de um emitente, e o emitente é de um ambiente.
+1. **Configuração** mostra o que veio do `.env` e chama `GET /v1/contexto` para provar a credencial e o escopo. A emissão não tem parâmetro de ambiente: a credencial é de um emitente, e a nota sai no ambiente dele. Só as rotas de série aceitam um `ambiente` opcional, e este exemplo não o usa.
 
    É também onde fica **Recomeçar do zero**, que apaga o banco local inteiro e semeia os dados de exemplo de novo — o caminho para **trocar de emitente** sem misturar as notas de um com as do outro. Não chama a API: o emitente continua cadastrado, as notas emitidas continuam autorizadas e a credencial continua válida. O que se perde é local e irrecuperável: os `secret` da credencial operacional e do webhook, que a API mostra uma única vez. Por isso o botão exige confirmação.
 
@@ -53,16 +53,22 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
    | 2 | Subir o certificado (base64 num JSON, com a senha) | `PUT /v1/emitentes/{id}/certificado` | gestão |
    | 3 | Ativar (exige certificado) | `PATCH /v1/emitentes/{id}` | gestão |
    | 4 | Cunhar a credencial **operacional** e guardá-la | `POST /v1/credenciais` | gestão |
-   | 5 | Provisionar séries gerenciadas, 55 e 65 | `POST /v1/series` | operacional |
+   | 5 | Provisionar séries gerenciadas, 55 e 65, no ambiente atual | `POST /v1/series` | operacional |
    | 6 | Webhook (opcional; HTTPS pública) | `PUT /v1/emitentes/{id}/webhook` | operacional |
 
    A credencial de gestão **não emite**. A que emite é a operacional, que o passo 4 cunha a partir dela e guarda no banco local. Você só configura uma.
+
+   **A série é por ambiente.** Homologação e produção numeram separado: a série 1 de homologação e a de produção são duas, cada uma com o seu próximo número. Sem `ambiente` no corpo, o passo 5 provisiona no ambiente atual do emitente, que aqui é homologação. A série de produção se provisiona antes de promover o emitente; sem ela, a primeira nota de produção volta `404 series-not-provisioned`. O guia *Séries e numeração* da [Referência](https://flexdfe.com.br/docs) mostra como.
 
    **Atalho, quando o emitente já existe na plataforma.** Os passos de 1 a 4 são o onboarding pela API, e existem porque um integrador precisa fazê-lo. Se o emitente já foi cadastrado no painel — com certificado, ativo, e com uma credencial **operacional** cunhada lá —, informe essa credencial no atalho do passo 1: a aplicação chama `GET /v1/contexto` para descobrir de quem ela é e `GET /v1/emitentes/{id}` para trazer a ficha, guarda as duas coisas no banco local e vai direto para a série. Duas leituras, nenhuma escrita, e nada é criado na plataforma. É o que um ERP faz de verdade quando o cliente entrega uma credencial pronta: a integração nunca cadastra ninguém, só se apresenta.
 
    Uma diferença fica: o cadastro pela API move o destinatário semeado para o município do emitente, e o atalho não consegue, porque a leitura do emitente publica município e UF mas não o código IBGE. Se as UFs divergirem, a tela avisa e o ajuste é na tela Destinatários.
 
 3. **Produtos** e **Destinatários** são cadastros locais mínimos, já semeados: três produtos tributados nas duas variantes (Simples Nacional por `csosn`, Regime Normal por `cst`) e um destinatário com o nome que a SEFAZ exige em homologação. Qual variante vai para a nota é decidido pelo **CRT do emitente** cadastrado. Os códigos e as alíquotas são plausíveis, não uma recomendação: a classificação fiscal de cada item é sua, e é o que o seu contador define.
+
+   Duas coisas que a plataforma faz com o `documento` e que aparecem quando se compara o enviado com o XML autorizado:
+   - **Em homologação, a descrição do primeiro item é trocada** pela frase que a SEFAZ exige, `NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL`, nos dois modelos. O nome do destinatário a plataforma não troca, e é por isso que ele vem semeado.
+   - **Na NFC-e, o CFOP, o CST e o CSOSN de cada item são conferidos** contra os códigos que a SEFAZ aceita no modelo 65. Os semeados passam; um código trocado na tela Produtos que fique fora deles volta como `failed`, com a regra no motivo.
 
 4. **Nova nota** escolhe modelo 55 ou 65, destinatário (opcional no 65), itens e pagamento. A tela confere a soma dos pagamentos contra o total dos itens, monta o `documento`, gera a `Idempotency-Key`, **grava a nota antes de chamar** e só então faz `POST /v1/nfe?wait=8000`. Desfecho dentro do `wait` é gravado; estouro deixa a nota "processando".
 
@@ -72,9 +78,11 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
    - **XML** só na autorizada; **DANFE** na autorizada e na cancelada.
    - **Consultar** pede a verdade à SEFAZ. É assíncrona e não gera evento: o resultado vem ao **reler** a nota, e é a releitura que a tela grava. Detecta um cancelamento feito por fora e destrava uma nota presa em processando.
    - **Cancelar** só na autorizada. Vai só a justificativa; a tela confere tamanho e caracteres antes de chamar, e a API responderia `422 cancellation-reason-invalid` e `409 nfe-not-cancelable` pelos mesmos motivos. O aceite devolve o id de um comando **novo**; a nota segue autorizada até o feed trazer o `nfe.cancel` dele.
-   - **Carta de correção** só na NF-e (55) autorizada; a NFC-e não tem o instrumento. O formulário já vem com a correção vigente, porque **a última carta substitui todas as anteriores**: o texto é cumulativo. O histórico das cartas, inclusive as que não corrigiram nada, vem de `GET /v1/nfe/{id}/cce`.
+   - **Carta de correção** só na NF-e (55) autorizada; a NFC-e não tem o instrumento. O formulário já vem com a correção vigente, porque **a última carta substitui todas as anteriores**: o texto é cumulativo. O histórico das cartas, inclusive as que não corrigiram nada, vem de `GET /v1/nfe/{id}/cce`, e cada carta **registrada** oferece o **DACCE**, o documento da carta que o emitente entrega ao destinatário; o DANFE da nota não muda com a correção.
    - **Reenviar (mesma chave)** enquanto a nota está em voo: prova que é replay, não uma segunda nota.
    - **Reemitir (chave nova)** só depois de `failed`. Veja abaixo.
+
+   Uma nota **reconciliando** é a que a SEFAZ já autorizou e cuja gravação a plataforma está refazendo, depois de um erro interno. O detalhe explica e manda esperar: ela vira autorizada sozinha, e emitir de novo criaria uma segunda nota para a mesma venda.
 
 7. **Inutilização** declara à SEFAZ que uma faixa de números de uma série não será usada. A tela confere a **forma** dos campos e nada mais, porque a API também só confere a forma: se a faixa procede, se `nNFIni ≤ nNFFin`, é a SEFAZ que decide, e a recusa dela volta como desfecho rejeitado, não como `422`. Experimente uma faixa invertida.
 
@@ -87,7 +95,7 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
 | Configuração | `GET /v1/contexto` (o reset do banco local não chama nada) | gestão |
 | Emitente | as seis da tabela acima | gestão, depois operacional |
 | Nova nota | `GET /v1/emitentes/{id}`, `POST /v1/nfe?wait=8000` (com `Idempotency-Key`) | operacional |
-| Notas | `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/xml`, `GET /v1/nfe/{id}/danfe`, `POST /v1/nfe/{id}/consulta`, `POST /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cancelamento`, `POST /v1/nfe/{id}/cce`, `GET /v1/nfe/{id}/cce` | operacional |
+| Notas | `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/xml`, `GET /v1/nfe/{id}/danfe`, `POST /v1/nfe/{id}/consulta`, `POST /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cancelamento`, `POST /v1/nfe/{id}/cce`, `GET /v1/nfe/{id}/cce`, `GET /v1/nfe/{id}/cce/{cartaId}/dacce` | operacional |
 | Inutilização | `POST /v1/inutilizacoes?wait=8000` (com `Idempotency-Key`) | operacional |
 | Eventos | `GET /v1/nfe/events`, `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cce` | operacional |
 
@@ -95,13 +103,13 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
 
 ## `failed` e `blocked` não são a mesma coisa
 
-Os dois são terminais sem nota autorizada, e pedem o oposto. A tela distingue pelo `status`, nunca pelo texto do motivo.
+Os dois são terminais sem nota autorizada, e cada um se conserta num lugar diferente. A tela distingue pelo `status`, nunca pelo texto do motivo.
 
 | | `failed` | `blocked` |
 |---|---|---|
-| O que houve | A plataforma parou **antes** da SEFAZ (recusa antecipada) ou esgotou as tentativas | A nota **pode existir** na SEFAZ: duplicidade, número tomado |
-| O motivo | Traz o **caminho do campo** que reprovou, ex.: `PIS_COFINS_AUSENTE em /det[1]/imposto/PIS` | Diz o conflito |
-| O que a tela oferece | **Reemitir com chave nova** (o mesmo corpo, outra `Idempotency-Key`) e consultar | **Só consultar**. Reemitir criaria a segunda via do problema |
+| O que houve | A plataforma parou **antes** da SEFAZ (recusa antecipada) ou esgotou as tentativas | A **numeração** não deixou a nota sair: a SEFAZ acusou duplicidade, ou a série foi inativada, esgotou ou trocou de modo depois do aceite |
+| O motivo | Traz o **caminho do campo** que reprovou, ex.: `PIS_COFINS_AUSENTE em /det[1]/imposto/PIS` | Diz a causa e o ajuste, ex.: `a série está inativa e não aceita número novo; reative-a ou envie a nota por outra série` |
+| O que a tela oferece | **Reemitir com chave nova** (o mesmo corpo, outra `Idempotency-Key`) e consultar | **Consultar**. O ajuste é na série ou na numeração, fora da nota, e só quem opera sabe quando foi feito; feito ele, a nota se emite de novo em Nova nota. Reenviar com a mesma chave só devolveria a nota bloqueada |
 
 A nota que falhou fica no histórico local; a reemissão nasce apontando para ela.
 
@@ -133,6 +141,6 @@ O mesmo processo recebe `POST /webhook`: lê o corpo cru, confere `X-Signature` 
 npm test
 ```
 
-Sobem a aplicação e uma **API falsa** em processo, e dirigem a tela por HTTP. Não precisam de credencial nem de rede. A API falsa (`test/api-falsa.ts`) é escrita à mão a partir da Referência: se o contrato mudar, é ali que a divergência aparece. Os cenários cobrem o cadastro até a série, a emissão nos dois modelos, o feed reentrante, o webhook, a consulta, o cancelamento recusado e registrado, a carta cumulativa e recusada no 65, a inutilização, `failed` e `blocked` nas ações oferecidas, e o `429` com `Retry-After`.
+Sobem a aplicação e uma **API falsa** em processo, e dirigem a tela por HTTP. Não precisam de credencial nem de rede. A API falsa (`test/api-falsa.ts`) é escrita à mão a partir da Referência: se o contrato mudar, é ali que a divergência aparece. Os cenários cobrem o cadastro até a série, a emissão nos dois modelos, o feed reentrante, o webhook, a consulta, o cancelamento recusado e registrado, a carta cumulativa e recusada no 65, o DACCE só na carta registrada, a inutilização, `failed` e `blocked` nas ações oferecidas, a nota `reconciliando`, e o `429` com `Retry-After`.
 
 `npm run check` roda a checagem de tipos e os testes.

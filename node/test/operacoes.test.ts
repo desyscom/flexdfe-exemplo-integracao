@@ -1,5 +1,6 @@
 // As operações sobre a nota emitida, dirigidas pela tela contra a API falsa: consulta, cancelamento,
-// carta de correção, inutilização, os dois terminais que se parecem (`failed` e `blocked`) e o 429.
+// carta de correção e o DACCE, inutilização, os dois terminais que se parecem (`failed` e `blocked`), a nota
+// `reconciliando` e o 429.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -286,7 +287,8 @@ test('failed: motivo com o caminho do campo, reemitir com chave NOVA; blocked: m
     assert.match(lista.html, /<b>falhou<\/b>/);
     assert.match(lista.html, /<b>bloqueada<\/b>/);
     assert.match(lista.texto, /motivo:<\/b> PIS_COFINS_AUSENTE em \/det\[1\]\/imposto\/PIS/, 'a recusa antecipada aponta o caminho do campo');
-    assert.match(lista.texto, /motivo:<\/b> número tomado por outra chave na SEFAZ/);
+    assert.match(lista.texto, /motivo:<\/b> a série está inativa e não aceita número novo; reative-a ou envie a nota por outra série/, 'o bloqueio diz a causa na numeração e o ajuste');
+    assert.match(lista.texto, /blocked: a numeração não deixou a nota sair\. Faça o ajuste que o motivo diz e emita a nota de novo em Nova nota\./);
     // failed: reemitir com chave nova (e consultar). Nunca reenviar com a mesma, nem cancelar.
     assert.match(lista.html, new RegExp(`action="/notas/${falhou.id}/reemitir"`));
     assert.match(lista.html, new RegExp(`action="/notas/${falhou.id}/consultar"`));
@@ -313,15 +315,79 @@ test('failed: motivo com o caminho do campo, reemitir com chave NOVA; blocked: m
     assert.equal(c.banco.lerNota(falhou.id)!.status, 'failed', 'a que falhou fica no histórico');
     assert.equal(c.api.comandos.size, 3, 'a API criou um comando novo');
 
-    // blocked não se reemite: recusado na tela, sem chamar a API.
+    // blocked não se reemite por aqui: o ajuste é fora da nota. Recusado na tela, sem chamar a API.
     const recusa = await c.post(`/notas/${bloqueada.id}/reemitir`);
     assert.match(recusa.texto, /Reemitir só depois de failed; a nota 2 está bloqueada/);
-    assert.match(recusa.texto, /blocked não se reemite: a nota pode existir na SEFAZ/);
+    assert.match(recusa.texto, /blocked não se reemite por aqui: a numeração não deixou a nota sair/);
     assert.equal(chamadas(c, 'POST', /^\/v1\/nfe\?/).length, 3);
 
     const detalhe = await c.get(`/notas/${bloqueada.id}`);
-    assert.match(detalhe.texto, /<b>blocked<\/b>: a nota pode existir na SEFAZ/);
+    assert.match(detalhe.texto, /<b>blocked<\/b>: a <b>numeração<\/b> não deixou a nota sair/);
+    assert.match(detalhe.texto, /O ajuste é na série ou na numeração, fora da nota; feito ele, emita a nota de novo em <a href="\/nova-nota">Nova nota<\/a>/);
     assert.match(detalhe.texto, /Não oferecido: a nota está <b>bloqueada<\/b>/);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('DACCE: só a carta registrada tem documento; a rejeitada fica sem link, e pedida à mão é 409 nfe-dacce-unavailable', async () => {
+  const c = await subir();
+  try {
+    await ateSeries(c);
+    const nota = await notaAutorizada(c);
+
+    // A carta registrada: o histórico oferece o DACCE, e a tela devolve o PDF com o nome que a API sugeriu.
+    await c.post(`/notas/${nota.id}/carta`, { xCorrecao: 'Onde se le 10 caixas, leia-se 10 fardos com 12 caixas cada' });
+    await c.post('/eventos/puxar');
+    const [registrada] = c.banco.listarOperacoes(nota.id);
+    assert.equal(registrada.situacao, 'registrada');
+    let detalhe = await c.get(`/notas/${nota.id}`);
+    assert.match(detalhe.html, new RegExp(`<a href="/notas/${nota.id}/cce/${registrada.commandId}/dacce">DACCE</a>`));
+    const pdf = await fetch(`${c.base}/notas/${nota.id}/cce/${registrada.commandId}/dacce`);
+    assert.equal(pdf.status, 200);
+    assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+    assert.equal(pdf.headers.get('content-disposition'), `inline; filename="${nota.chave}-cce-1.pdf"`);
+    assert.match(await pdf.text(), /^%PDF-1\.4 DACCE/);
+    assert.equal(chamadas(c, 'GET', new RegExp(`^/v1/nfe/${nota.commandId}/cce/${registrada.commandId}/dacce$`)).length, 1, 'pela nota e pela carta');
+
+    // A carta rejeitada: nada a imprimir. Sem link no histórico; pedida à mão, a tela mostra o envelope da API.
+    c.api.modoOperacoes = 'assincrono';
+    await c.post(`/notas/${nota.id}/carta`, { xCorrecao: 'Onde se le 10 caixas, leia-se 10 fardos com 12 caixas cada; CFOP 5102' });
+    const [rejeitada] = c.banco.listarOperacoes(nota.id);
+    assert.notEqual(rejeitada.id, registrada.id);
+    c.api.concluirOperacao(rejeitada.commandId!, 'rejected');
+    await c.post('/eventos/puxar');
+    detalhe = await c.get(`/notas/${nota.id}`);
+    assert.match(detalhe.html, /<td><b>rejeitada<\/b><\/td>.*?<td>-<\/td><td>-<\/td><\/tr>/s, 'sem registrada em, sem documento');
+    assert.doesNotMatch(detalhe.html, new RegExp(`/cce/${rejeitada.commandId}/dacce`));
+    const recusa = await c.get(`/notas/${nota.id}/cce/${rejeitada.commandId}/dacce`);
+    assert.equal(recusa.status, 409);
+    assert.match(recusa.texto, new RegExp(`DACCE da nota ${nota.id} indisponível: HTTP 409`));
+    assert.match(recusa.texto, /type = nfe-dacce-unavailable/);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('reconciliando: o detalhe diz que a SEFAZ já autorizou e manda esperar, só quando a API diz reconciliando', async () => {
+  const c = await subir();
+  try {
+    await ateSeries(c);
+    c.api.modoEmissao = 'assincrono';
+    await c.post('/nova-nota/emitir', pedido55(c));
+    const [nota] = c.banco.listarNotas();
+
+    // Em voo, sem marcador: a nota diz pendente, e não há o que esperar além do desfecho.
+    let detalhe = await c.get(`/notas/${nota.id}`);
+    assert.match(detalhe.texto, /Na API agora: <b>pendente<\/b>/);
+    assert.doesNotMatch(detalhe.texto, /Espere e releia/);
+
+    // A SEFAZ autorizou e a gravação do desfecho se perdeu: o comando segue processing, com o marcador.
+    c.api.reconciliar(nota.commandId!);
+    detalhe = await c.get(`/notas/${nota.id}`);
+    assert.match(detalhe.texto, /Na API agora: <b>reconciliando<\/b> \(status processing/);
+    assert.match(detalhe.texto, /<b>reconciliando<\/b>: a SEFAZ já autorizou a nota, e um erro interno abortou a gravação do desfecho na plataforma\. <b>Espere e releia<\/b>/);
+    assert.match(detalhe.texto, /emitir de novo, com chave nova, criaria uma segunda nota para a mesma venda/);
   } finally {
     await c.encerrar();
   }

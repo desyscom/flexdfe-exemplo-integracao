@@ -53,6 +53,10 @@ test('o ciclo completo: cadastro, certificado, ativação, credencial, série 55
     assert.match((await c.post('/emitente/serie', { modelo: '55', serie: '1' })).html, /Série 1 do modelo 55 provisionada/);
     assert.match((await c.post('/emitente/serie', { modelo: '65', serie: '1' })).html, /Série 1 do modelo 65 provisionada/);
     for (const r of c.api.requisicoes.filter((r) => r.caminho === '/v1/series')) assert.equal(r.clientId, cunhada.clientId);
+    // Sem `ambiente` no corpo: a série nasce no ambiente atual do emitente, e a representação diz qual.
+    const provisao = c.api.requisicoes.find((r) => r.metodo === 'POST' && r.caminho === '/v1/series')!;
+    assert.deepEqual(provisao.corpo, { modelo: 55, serie: 1, mode: 'managed' });
+    assert.deepEqual(c.api.series.map((s) => s.ambiente), ['homologacao', 'homologacao']);
 
     // Webhook: criado, o secret vem e é guardado.
     const webhook = await c.post('/emitente/webhook', { url: 'https://tunel.exemplo.com/webhook' });
@@ -66,7 +70,8 @@ test('o ciclo completo: cadastro, certificado, ativação, credencial, série 55
     tela = await c.get('/emitente');
     for (const passo of ['1. Cadastrar o emitente ✓', '2. Subir o certificado A1 ✓', '3. Ativar ✓', '4. Cunhar a credencial operacional ✓', '5. Provisionar séries ✓', '6. Webhook (opcional) ✓'])
       assert.ok(tela.html.includes(passo), `faltou "${passo}"`);
-    assert.match(tela.html, /<td>55<\/td><td>1<\/td><td>managed<\/td>/);
+    assert.match(tela.html, /<td>homologacao<\/td><td>55<\/td><td>1<\/td><td>managed<\/td>/);
+    assert.match(tela.html, /a lista abaixo é a de <b>homologacao<\/b>/);
     assert.match(tela.html, /tunel\.exemplo\.com\/outro/);
     // A página lista as rotas que consumiu.
     assert.match(tela.html, /GET \/v1\/emitentes\//);

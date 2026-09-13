@@ -252,9 +252,10 @@ async function renderizar(ctx: Contexto, ultimo: Resultado): Promise<Resposta> {
   }
 
   let series: Serie[] = [];
+  let ambienteDasSeries: Serie['ambiente'] | null = null;
   if (operacional) {
     try {
-      series = (await cliente.listarSeries(operacional)).corpo.series;
+      ({ series, ambiente: ambienteDasSeries } = (await cliente.listarSeries(operacional)).corpo);
     } catch (erro) {
       leituraFalhou ??= resultadoDeErro('Não consegui listar as séries', erro);
     }
@@ -296,7 +297,8 @@ ${passo(4, 'Cunhar a credencial operacional', 'POST /v1/credenciais  { "descrica
 
 ${passo(5, 'Provisionar séries', 'POST /v1/series  { "modelo", "serie", "mode": "managed" }', 'operacional', series.length > 0, !operacional
   ? bloqueado('cunhe a credencial operacional; a de gestão recebe 403 emitente-scope-required')
-  : html`${series.length ? html`<table><tr><th>Modelo</th><th>Série</th><th>Modo</th><th>Próximo número</th><th>Ativa</th></tr>${series.map((s) => html`<tr><td>${s.modelo}</td><td>${s.serie}</td><td>${s.mode}</td><td>${s.nextNumber ?? '-'}</td><td>${s.active ? 'sim' : 'não'}</td></tr>`)}</table>` : bruto('<p>Nenhuma série ainda. Sem série a emissão responde 404 series-not-provisioned.</p>')}
+  : html`<p>A série é <b>por ambiente</b>: homologação e produção numeram separado, e a de produção é outra, provisionada antes de promover o emitente. Sem <code>ambiente</code> no corpo, a série nasce no ambiente atual do emitente${ambienteDasSeries ? html`, e a lista abaixo é a de <b>${ambienteDasSeries}</b>` : vazio}.</p>
+${series.length ? html`<table><tr><th>Ambiente</th><th>Modelo</th><th>Série</th><th>Modo</th><th>Próximo número</th><th>Ativa</th></tr>${series.map((s) => html`<tr><td>${s.ambiente}</td><td>${s.modelo}</td><td>${s.serie}</td><td>${s.mode}</td><td>${s.nextNumber ?? '-'}</td><td>${s.active ? 'sim' : 'não'}</td></tr>`)}</table>` : bruto('<p>Nenhuma série ainda. Sem série no ambiente atual, a emissão responde 404 series-not-provisioned.</p>')}
 <form method="post" action="/emitente/serie"><label>Modelo <select name="modelo"><option value="55">55 · NF-e</option><option value="65">65 · NFC-e</option></select></label><label>Série <input name="serie" value="1" size="4"></label><button>Provisionar (managed)</button></form>`)}
 
 ${passo(6, 'Webhook (opcional)', 'PUT /v1/emitentes/{id}/webhook  { "url", "ativo": true }', 'operacional', Boolean(emitente?.webhook), !operacional

@@ -1,5 +1,5 @@
 // Uma API do Flex DFe de mentira, em processo, para os testes dirigirem a tela sem credencial
-// nem SEFAZ. Responde os contratos do OpenAPI publicado (tag v0.1.0) só no que este exemplo
+// nem SEFAZ. Responde os contratos do OpenAPI publicado (tag v0.3.1) só no que este exemplo
 // consome: os dois envelopes de erro, os escopos, o secret que aparece uma vez, as operações
 // sobre a nota emitida e o 429 da borda.
 //
@@ -64,7 +64,8 @@ export class ApiFalsa {
   readonly requisicoes: Requisicao[] = [];
   readonly credenciais: Cred[] = [{ clientId: 'gestao', secret: 'segredo-gestao', escopo: 'integrador' }];
   readonly emitentes = new Map<string, Record<string, unknown>>();
-  readonly series: { emitenteId: string; modelo: number; serie: number; nextNumber: number }[] = [];
+  /** A série é por ambiente: a chave é emitente + ambiente + modelo + série. */
+  readonly series: { emitenteId: string; ambiente: string; modelo: number; serie: number; nextNumber: number }[] = [];
   readonly webhooks = new Map<string, { url: string; ativo: boolean; secret: string }>();
   /** A senha que "abre" o .pfx de teste, e o conteúdo cujo titular "bate" com o CNPJ. */
   senhaCerta = 'senha-certa';
@@ -109,11 +110,24 @@ export class ApiFalsa {
     } else {
       c.status = desfecho;
       c.outcome = null;
-      c.situacao = desfecho === 'blocked' ? 'bloqueada' : 'pendente';
+      // A API diz `bloqueada` para os dois terminais: quem os distingue é o `status`.
+      c.situacao = 'bloqueada';
       // O motivo de uma recusa antecipada traz o caminho do campo: a plataforma validou antes da SEFAZ.
-      c.result = { motivo: desfecho === 'failed' ? 'PIS_COFINS_AUSENTE em /det[1]/imposto/PIS' : 'número tomado por outra chave na SEFAZ', ...(desfecho === 'failed' ? { situacao: 'inexistente', origem: 'local', classe: 'permanent' } : {}) };
+      // O do bloqueio diz a causa na numeração e o ajuste; este é o da série inativada depois do aceite.
+      c.result = { motivo: desfecho === 'failed' ? 'PIS_COFINS_AUSENTE em /det[1]/imposto/PIS' : 'a série está inativa e não aceita número novo; reative-a ou envie a nota por outra série', ...(desfecho === 'failed' ? { situacao: 'inexistente', origem: 'local', classe: 'permanent' } : {}) };
     }
     return this.publicar(commandId, 'nfe.emit', c.status, c.outcome);
+  }
+
+  /**
+   * A SEFAZ autorizou e um erro interno abortou a gravação do desfecho: o comando segue `processing`, com o
+   * marcador no `result`, e a `situacao` diz `reconciliando` até a plataforma refazer a gravação. Sem evento no feed.
+   */
+  reconciliar(commandId: string): void {
+    const c = this.comandos.get(commandId)!;
+    c.status = 'processing';
+    c.situacao = 'reconciliando';
+    c.result = { reconciliacao: { desfecho: 'autorizada', especie: 'reconciliavel', protocolo: '135' + String(c.numero).padStart(12, '0'), cStat: '100', motivo: 'Autorizado o uso da NF-e', chave: c.chave, nSeqEvento: null, marcado_em: new Date().toISOString(), prox_tentativa_em: new Date().toISOString(), tentativas: 0 } };
   }
 
   /**
@@ -268,17 +282,24 @@ export class ApiFalsa {
       return json(201, { id: randomUUID(), descricao: c.descricao, client_id: nova.clientId, escopo: nova.escopo, emitente_id: c.emitente_id ?? null, emitente_nome: null, criado_em: 'x', ultimo_uso: null, ativo: true, secret: nova.secret });
     }
 
-    if (caminho === '/v1/series') {
+    if (caminho.split('?')[0] === '/v1/series') {
       if (cred.escopo !== 'emitente') return problema(403, 'emitente-scope-required');
-      const minhas = this.series.filter((s) => s.emitenteId === cred.emitenteId);
-      if (metodo === 'GET') return json(200, { series: minhas.map((s) => ({ modelo: s.modelo, serie: s.serie, mode: 'managed', active: true, nextNumber: s.nextNumber })) });
+      // Sem `ambiente` informado, as rotas de série operam no ambiente atual do emitente.
+      const atual = String(this.emitentes.get(cred.emitenteId!)!.ambiente);
+      if (metodo === 'GET') {
+        const ambiente = query.get('ambiente') ?? atual;
+        if (!['homologacao', 'producao'].includes(ambiente)) return problema(422, 'invalid-request-parameters');
+        const doAmbiente = this.series.filter((s) => s.emitenteId === cred.emitenteId && s.ambiente === ambiente);
+        return json(200, { ambiente, series: doAmbiente.map((s) => ({ ambiente: s.ambiente, modelo: s.modelo, serie: s.serie, mode: 'managed', active: true, nextNumber: s.nextNumber })) });
+      }
       if (metodo === 'POST') {
-        const c = corpo as { modelo?: number; serie?: number; mode?: string; nextNumber?: number };
-        if (![55, 65].includes(c.modelo!) || !Number.isInteger(c.serie) || !['managed', 'external'].includes(c.mode!)) return problema(422, 'invalid-request-body');
-        if (minhas.some((s) => s.modelo === c.modelo && s.serie === c.serie)) return problema(409, 'series-already-exists');
-        const s = { emitenteId: cred.emitenteId!, modelo: c.modelo!, serie: c.serie!, nextNumber: c.nextNumber ?? 1 };
+        const c = corpo as { ambiente?: string; modelo?: number; serie?: number; mode?: string; nextNumber?: number };
+        const ambiente = c.ambiente ?? atual;
+        if (![55, 65].includes(c.modelo!) || !Number.isInteger(c.serie) || !['managed', 'external'].includes(c.mode!) || !['homologacao', 'producao'].includes(ambiente)) return problema(422, 'invalid-request-body');
+        if (this.series.some((s) => s.emitenteId === cred.emitenteId && s.ambiente === ambiente && s.modelo === c.modelo && s.serie === c.serie)) return problema(409, 'series-already-exists');
+        const s = { emitenteId: cred.emitenteId!, ambiente, modelo: c.modelo!, serie: c.serie!, nextNumber: c.nextNumber ?? 1 };
         this.series.push(s);
-        return json(201, { modelo: s.modelo, serie: s.serie, mode: c.mode, active: true, nextNumber: s.nextNumber });
+        return json(201, { ambiente: s.ambiente, modelo: s.modelo, serie: s.serie, mode: c.mode, active: true, nextNumber: s.nextNumber });
       }
     }
 
@@ -313,11 +334,12 @@ export class ApiFalsa {
         if (![55, 65].includes(c.modelo!) || !Number.isInteger(c.serie) || typeof c.documento !== 'object') return problema(422, 'invalid-request-body', 'modelo deve ser 55 (NF-e) ou 65 (NFC-e)');
         const replay = this.replay(chave, corpo);
         if (replay) return replay;
-        const serie = this.series.find((s) => s.emitenteId === cred.emitenteId && s.modelo === c.modelo && s.serie === c.serie);
-        if (!serie) return problema(404, 'series-not-provisioned', `série modelo=${c.modelo} serie=${c.serie} não provisionada`);
+        // A nota numera na série do ambiente atual do emitente.
+        const emitente = this.emitentes.get(cred.emitenteId!)!;
+        const serie = this.series.find((s) => s.emitenteId === cred.emitenteId && s.ambiente === emitente.ambiente && s.modelo === c.modelo && s.serie === c.serie);
+        if (!serie) return problema(404, 'series-not-provisioned', `série modelo=${c.modelo} serie=${c.serie} não provisionada no ambiente ${emitente.ambiente}`);
         if (c.numero !== undefined) return problema(422, 'number-not-allowed-managed', 'série managed: a plataforma aloca o número; não informe numero');
         const numero = serie.nextNumber++;
-        const emitente = this.emitentes.get(cred.emitenteId!)!;
         const novo: Comando = {
           id: randomUUID(),
           emitenteId: cred.emitenteId!,
@@ -412,6 +434,13 @@ export class ApiFalsa {
           if (this.modoOperacoes === 'sincrono') this.concluirOperacao(o.id, 'authorized');
           return json(202, aceiteOperacao(o, `/v1/nfe/${comando.id}/cancelamento`, `/v1/nfe/${comando.id}`));
         }
+      }
+
+      if (metodo === 'GET' && sub === 'cce' && partes[5] === 'dacce' && partes.length === 6) {
+        const carta = cartas().find((o) => o.id === partes[4]);
+        if (!carta) return problema(404, 'command-not-found', `carta ${partes[4]} não encontrada`);
+        if (carta.situacao !== 'registrada') return problema(409, 'nfe-dacce-unavailable', `a carta de correção está ${carta.situacao} — só uma carta registrada na SEFAZ tem documento para imprimir`);
+        return { status: 200, tipo: 'application/pdf', corpo: undefined, texto: `%PDF-1.4 DACCE ${comando.chave} nSeq ${carta.nSeq}`, disposicao: `inline; filename="${comando.chave}-cce-${carta.nSeq}.pdf"` };
       }
 
       if (sub === 'cce') {
