@@ -282,22 +282,19 @@ export class ApiFalsa {
       return json(201, { id: randomUUID(), descricao: c.descricao, client_id: nova.clientId, escopo: nova.escopo, emitente_id: c.emitente_id ?? null, emitente_nome: null, criado_em: 'x', ultimo_uso: null, ativo: true, secret: nova.secret });
     }
 
-    if (caminho.split('?')[0] === '/v1/series') {
+    if (caminho === '/v1/series') {
       if (cred.escopo !== 'emitente') return problema(403, 'emitente-scope-required');
-      // Sem `ambiente` informado, as rotas de série operam no ambiente atual do emitente.
+      // O exemplo não informa `ambiente`, e sem ele as rotas de série operam no ambiente atual do emitente.
       const atual = String(this.emitentes.get(cred.emitenteId!)!.ambiente);
       if (metodo === 'GET') {
-        const ambiente = query.get('ambiente') ?? atual;
-        if (!['homologacao', 'producao'].includes(ambiente)) return problema(422, 'invalid-request-parameters');
-        const doAmbiente = this.series.filter((s) => s.emitenteId === cred.emitenteId && s.ambiente === ambiente);
-        return json(200, { ambiente, series: doAmbiente.map((s) => ({ ambiente: s.ambiente, modelo: s.modelo, serie: s.serie, mode: 'managed', active: true, nextNumber: s.nextNumber })) });
+        const doAmbiente = this.series.filter((s) => s.emitenteId === cred.emitenteId && s.ambiente === atual);
+        return json(200, { ambiente: atual, series: doAmbiente.map((s) => ({ ambiente: s.ambiente, modelo: s.modelo, serie: s.serie, mode: 'managed', active: true, nextNumber: s.nextNumber })) });
       }
       if (metodo === 'POST') {
-        const c = corpo as { ambiente?: string; modelo?: number; serie?: number; mode?: string; nextNumber?: number };
-        const ambiente = c.ambiente ?? atual;
-        if (![55, 65].includes(c.modelo!) || !Number.isInteger(c.serie) || !['managed', 'external'].includes(c.mode!) || !['homologacao', 'producao'].includes(ambiente)) return problema(422, 'invalid-request-body');
-        if (this.series.some((s) => s.emitenteId === cred.emitenteId && s.ambiente === ambiente && s.modelo === c.modelo && s.serie === c.serie)) return problema(409, 'series-already-exists');
-        const s = { emitenteId: cred.emitenteId!, ambiente, modelo: c.modelo!, serie: c.serie!, nextNumber: c.nextNumber ?? 1 };
+        const c = corpo as { modelo?: number; serie?: number; mode?: string; nextNumber?: number };
+        if (![55, 65].includes(c.modelo!) || !Number.isInteger(c.serie) || !['managed', 'external'].includes(c.mode!)) return problema(422, 'invalid-request-body');
+        if (this.series.some((s) => s.emitenteId === cred.emitenteId && s.ambiente === atual && s.modelo === c.modelo && s.serie === c.serie)) return problema(409, 'series-already-exists');
+        const s = { emitenteId: cred.emitenteId!, ambiente: atual, modelo: c.modelo!, serie: c.serie!, nextNumber: c.nextNumber ?? 1 };
         this.series.push(s);
         return json(201, { ambiente: s.ambiente, modelo: s.modelo, serie: s.serie, mode: c.mode, active: true, nextNumber: s.nextNumber });
       }

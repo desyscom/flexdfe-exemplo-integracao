@@ -68,7 +68,7 @@ ${resultado(ultimo)}
     <p><b>Certificado</b><br>${config.certificado.caminho ? html`<code>${config.certificado.caminho}</code>` : 'não configurado (só faz falta ao cadastrar um emitente novo)'}</p>
     <p><b>Banco local</b><br><code>${config.banco}</code></p>
   </div>
-  <p>O ambiente não é configurado em lugar nenhum: a credencial é de um emitente, e o emitente é de um ambiente. O <span class="rota">GET /v1/contexto</span> abaixo diz qual.</p>
+  <p>O ambiente não está no <code>.env</code> nem na emissão: ele é do emitente, que este exemplo cadastra em homologação, e a nota sai nele. A tela Emitente mostra qual é. As rotas de série aceitam um <code>ambiente</code> opcional, para operar no outro, e este exemplo não o usa.</p>
 </section>
 ${resultado(contexto)}
 <section>

@@ -288,7 +288,7 @@ test('failed: motivo com o caminho do campo, reemitir com chave NOVA; blocked: m
     assert.match(lista.html, /<b>bloqueada<\/b>/);
     assert.match(lista.texto, /motivo:<\/b> PIS_COFINS_AUSENTE em \/det\[1\]\/imposto\/PIS/, 'a recusa antecipada aponta o caminho do campo');
     assert.match(lista.texto, /motivo:<\/b> a série está inativa e não aceita número novo; reative-a ou envie a nota por outra série/, 'o bloqueio diz a causa na numeração e o ajuste');
-    assert.match(lista.texto, /blocked: a numeração não deixou a nota sair\. Faça o ajuste que o motivo diz e emita a nota de novo em Nova nota\./);
+    assert.match(lista.texto, /blocked: a numeração não deixou a nota sair\. Revise a numeração, se foi duplicidade, ou faça na série o ajuste que o motivo diz, e emita a nota de novo em Nova nota\./);
     // failed: reemitir com chave nova (e consultar). Nunca reenviar com a mesma, nem cancelar.
     assert.match(lista.html, new RegExp(`action="/notas/${falhou.id}/reemitir"`));
     assert.match(lista.html, new RegExp(`action="/notas/${falhou.id}/consultar"`));
@@ -323,7 +323,8 @@ test('failed: motivo com o caminho do campo, reemitir com chave NOVA; blocked: m
 
     const detalhe = await c.get(`/notas/${bloqueada.id}`);
     assert.match(detalhe.texto, /<b>blocked<\/b>: a <b>numeração<\/b> não deixou a nota sair/);
-    assert.match(detalhe.texto, /O ajuste é na série ou na numeração, fora da nota; feito ele, emita a nota de novo em <a href="\/nova-nota">Nova nota<\/a>/);
+    // A duplicidade não traz o ajuste no motivo, e a série traz: o texto separa os dois caminhos, como o guia da API.
+    assert.match(detalhe.texto, /Se a SEFAZ acusou duplicidade, revise a numeração antes de emitir de novo\. Se a série foi inativada, esgotou ou trocou de modo depois do aceite, o motivo diz também o ajuste\. Os dois ajustes são fora da nota; feito o ajuste, emita a nota de novo em <a href="\/nova-nota">Nova nota<\/a>/);
     assert.match(detalhe.texto, /Não oferecido: a nota está <b>bloqueada<\/b>/);
   } finally {
     await c.encerrar();

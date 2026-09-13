@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { EMITENTE_VALIDO, subir, type Cenario } from './apoio.ts';
+import { ateSeries, EMITENTE_VALIDO, pedido55, subir, type Cenario } from './apoio.ts';
 
 async function cadastrar(c: Cenario) {
   const r = await c.post('/emitente/cadastrar', EMITENTE_VALIDO);
@@ -76,6 +76,39 @@ test('o ciclo completo: cadastro, certificado, ativação, credencial, série 55
     // A página lista as rotas que consumiu.
     assert.match(tela.html, /GET \/v1\/emitentes\//);
     assert.match(tela.html, /GET \/v1\/series/);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('a série é por ambiente: o emitente promovido não leva a de homologação, e a de produção numera do começo', async () => {
+  const c = await subir();
+  try {
+    const id = await ateSeries(c);
+    const homologacao = await c.post('/nova-nota/emitir', pedido55(c));
+    assert.match(homologacao.html, /completed \/ authorized, número 1/);
+
+    // A promoção acontece fora do exemplo (no painel). A série de homologação fica onde está.
+    c.api.emitentes.get(id)!.ambiente = 'producao';
+    let tela = await c.get('/emitente');
+    assert.match(tela.html, /ambiente <b>producao<\/b>/);
+    assert.match(tela.html, /a lista abaixo é a de <b>producao<\/b>/);
+    assert.match(tela.html, /Nenhuma série ainda\. Sem série no ambiente atual, a emissão responde 404 series-not-provisioned\./);
+    assert.ok(!tela.html.includes('5. Provisionar séries ✓'), 'as séries de homologação não contam em produção');
+
+    // Sem série de produção, a emissão volta 404, e o detail nomeia o ambiente em que ela falta.
+    const recusa = await c.post('/nova-nota/emitir', pedido55(c));
+    assert.match(recusa.texto, /HTTP 404/);
+    assert.match(recusa.texto, /type = series-not-provisioned/);
+    assert.match(recusa.texto, /série modelo=55 serie=1 não provisionada no ambiente producao/);
+
+    // A série 1 de produção é outra: nasce no ambiente atual e começa do 1, sem herdar o cursor de homologação.
+    assert.match((await c.post('/emitente/serie', { modelo: '55', serie: '1' })).html, /Série 1 do modelo 55 provisionada/);
+    tela = await c.get('/emitente');
+    assert.match(tela.html, /<td>producao<\/td><td>55<\/td><td>1<\/td><td>managed<\/td><td>1<\/td>/);
+    const producao = await c.post('/nova-nota/emitir', pedido55(c));
+    assert.match(producao.html, /completed \/ authorized, número 1/);
+    assert.deepEqual(c.api.series.map((s) => `${s.ambiente} ${s.modelo}/${s.serie} próximo ${s.nextNumber}`), ['homologacao 55/1 próximo 2', 'homologacao 65/1 próximo 1', 'producao 55/1 próximo 2']);
   } finally {
     await c.encerrar();
   }

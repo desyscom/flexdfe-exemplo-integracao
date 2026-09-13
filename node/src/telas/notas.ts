@@ -19,9 +19,10 @@
 // Dois terminais que se parecem e se consertam em lugares diferentes:
 //   `failed`  a plataforma parou ANTES da SEFAZ (recusa antecipada, com o caminho do campo no motivo) ou
 //             esgotou as tentativas. O número segue livre: reemita com uma chave NOVA.
-//   `blocked` a NUMERAÇÃO não deixou a nota sair: a SEFAZ acusou duplicidade, ou a série foi inativada,
-//             esgotou ou trocou de modo depois do aceite. O motivo diz o ajuste, que é na série ou na
-//             numeração, fora da nota; feito o ajuste, a nota se emite de novo, em Nova nota.
+//   `blocked` a NUMERAÇÃO não deixou a nota sair. Se a SEFAZ acusou duplicidade, o motivo diz só a causa, e
+//             o caminho é revisar a numeração; se a série foi inativada, esgotou ou trocou de modo depois do
+//             aceite, o motivo diz também o ajuste. Os dois ajustes são fora da nota; feito o ajuste, a
+//             nota se emite de novo, em Nova nota.
 // A tela distingue os dois pelo `status`, nunca pelo texto do motivo.
 
 import { randomUUID } from 'node:crypto';
@@ -113,7 +114,7 @@ async function reemitir({ params, banco, cliente }: Contexto): Promise<Resultado
   const nota = banco.lerNota(Number(params.id));
   const operacional = banco.credencialOperacional();
   if (!nota || !operacional) return { ok: false, titulo: 'Nota não encontrada ou credencial ausente' };
-  if (nota.status !== 'failed') return { ok: false, titulo: `Reemitir só depois de failed; a nota ${nota.id} está ${situacaoLocal(nota)}`, detalhe: nota.status === 'blocked' ? 'blocked não se reemite por aqui: a numeração não deixou a nota sair. Faça o ajuste que o motivo diz e emita a nota de novo em Nova nota.' : undefined };
+  if (nota.status !== 'failed') return { ok: false, titulo: `Reemitir só depois de failed; a nota ${nota.id} está ${situacaoLocal(nota)}`, detalhe: nota.status === 'blocked' ? 'blocked não se reemite por aqui: a numeração não deixou a nota sair. Revise a numeração, se foi duplicidade, ou faça na série o ajuste que o motivo diz, e emita a nota de novo em Nova nota.' : undefined };
 
   const idempotencyKey = randomUUID();
   const novaId = banco.criarNotaPendente({ modelo: nota.modelo, serie: nota.serie, idempotencyKey, corpoEnviado: nota.corpoEnviado, reemitidaDe: nota.id });
@@ -292,7 +293,7 @@ export const permiteXml = (n: Nota): boolean => situacaoLocal(n) === 'autorizada
 export const permiteDanfe = (n: Nota): boolean => ['autorizada', 'cancelada'].includes(situacaoLocal(n));
 /** Reenviar (mesma chave) só faz sentido enquanto a nota não tem desfecho: sem resposta, ou ainda em voo. */
 export const permiteReenviar = (n: Nota): boolean => !n.status || !ehTerminal(n.status);
-/** Reemitir (chave nova) é só para `failed`. `blocked` não: o ajuste é na série ou na numeração, fora da nota. */
+/** Reemitir (chave nova) é só para `failed`. `blocked` não: o ajuste é na numeração ou na série, fora da nota. */
 export const permiteReemitir = (n: Nota): boolean => n.status === 'failed';
 /** Consultar vale para qualquer nota que a API conhece: é não-destrutivo. */
 export const permiteConsultar = (n: Nota): boolean => n.commandId !== null;
@@ -325,7 +326,7 @@ function linha(n: Nota): Html {
   <td>
     ${(n.status === 'failed' || n.status === 'blocked') && motivo ? html`<p class="motivo"><b>motivo:</b> ${motivo}</p>` : vazio}
     ${n.status === 'failed' ? html`<p><small>failed: a plataforma parou antes da SEFAZ ou esgotou as tentativas. O número segue livre; reemita com chave nova.</small></p>` : vazio}
-    ${n.status === 'blocked' ? html`<p><small>blocked: a numeração não deixou a nota sair. Faça o ajuste que o motivo diz e emita a nota de novo em Nova nota.</small></p>` : vazio}
+    ${n.status === 'blocked' ? html`<p><small>blocked: a numeração não deixou a nota sair. Revise a numeração, se foi duplicidade, ou faça na série o ajuste que o motivo diz, e emita a nota de novo em Nova nota.</small></p>` : vazio}
     ${permiteXml(n) ? html`<a href="/notas/${n.id}/xml">XML</a> ` : vazio}
     ${permiteDanfe(n) ? html`<a href="/notas/${n.id}/danfe">DANFE</a> ` : vazio}
     ${permiteCancelar(n) ? html`<a href="/notas/${n.id}#cancelar">Cancelar</a> ` : vazio}
@@ -373,7 +374,7 @@ ${resultado(erroLeitura)}
   ${detalhe?.situacao === 'reconciliando' ? html`<p><b>reconciliando</b>: a SEFAZ já autorizou a nota, e um erro interno abortou a gravação do desfecho na plataforma. <b>Espere e releia</b>: a plataforma refaz a gravação sozinha, e a nota vira autorizada. Enquanto isso ela não cancela nem corrige, e emitir de novo, com chave nova, criaria uma segunda nota para a mesma venda. Parada assim por muito tempo, é caso de suporte.</p>` : vazio}
   ${motivo ? html`<p class="motivo"><b>motivo:</b> ${motivo}</p>` : vazio}
   ${nota.status === 'failed' ? html`<p><b>failed</b>: a plataforma parou antes da SEFAZ (recusa antecipada, e o motivo traz o caminho do campo) ou esgotou as tentativas. O número segue livre. O caminho é <b>reemitir com chave nova</b>: <form method="post" action="/notas/${nota.id}/reemitir" style="display:inline"><button>Reemitir (chave nova)</button></form></p>` : vazio}
-  ${nota.status === 'blocked' ? html`<p><b>blocked</b>: a <b>numeração</b> não deixou a nota sair. A SEFAZ acusou duplicidade, ou a série foi inativada, esgotou ou trocou de modo depois do aceite, e o motivo diz qual e o que ajustar. O ajuste é na série ou na numeração, fora da nota; feito ele, emita a nota de novo em <a href="/nova-nota">Nova nota</a>. Esta tela não reemite um blocked, e reenviar com a mesma chave só devolveria a nota bloqueada.</p>` : vazio}
+  ${nota.status === 'blocked' ? html`<p><b>blocked</b>: a <b>numeração</b> não deixou a nota sair, e o motivo diz por quê. Se a SEFAZ acusou duplicidade, revise a numeração antes de emitir de novo. Se a série foi inativada, esgotou ou trocou de modo depois do aceite, o motivo diz também o ajuste. Os dois ajustes são fora da nota; feito o ajuste, emita a nota de novo em <a href="/nova-nota">Nova nota</a>. Esta tela não reemite um blocked, e reenviar com a mesma chave só devolveria a nota bloqueada.</p>` : vazio}
 </section>
 
 <section id="consultar">

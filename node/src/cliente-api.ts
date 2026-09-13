@@ -4,8 +4,9 @@
 // Quatro coisas que todas as rotas compartilham:
 //
 // 1. Autenticação é HTTP Basic sobre TLS: `Authorization: Basic base64(client_id:secret)`.
-//    A emissão não tem parâmetro de ambiente: a credencial é de um emitente, e a nota sai no ambiente dele.
-//    Só as rotas de série aceitam um `ambiente` opcional, e sem ele operam no ambiente atual do emitente.
+//    A emissão não tem parâmetro de ambiente: a credencial é de um emitente, e a nota sai no ambiente dele,
+//    que muda no `PATCH /v1/emitentes/{id}`. As rotas de série aceitam um `ambiente` opcional, e sem ele
+//    operam no ambiente atual do emitente.
 // 2. Cada função recebe a credencial explicitamente. Isso torna visível qual ESCOPO cada rota
 //    exige: a de gestão (integrador) cadastra e cunha; a operacional (emitente) emite e provisiona série.
 // 3. Erros vêm em dois envelopes, separados pelo Content-Type e não pelo status HTTP:

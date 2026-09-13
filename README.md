@@ -16,7 +16,7 @@ Outras linguagens entram ao lado, cada uma na sua pasta, sem mover a primeira. C
 
 Você precisa de uma conta no Flex DFe com uma **credencial de gestão**. O certificado A1 (`.pfx`) do CNPJ que vai emitir só é necessário para **cadastrar um emitente novo** pela API: se o emitente já existe no painel, o exemplo o adota informando a credencial **operacional** dele, e descobre o resto sozinho. O [tutorial de primeiros passos](https://flexdfe.com.br/tutorial) mostra como chegar até a credencial. A [Referência da API](https://flexdfe.com.br/docs) descreve cada rota que o exemplo consome.
 
-O exemplo roda **em homologação**. Promover um emitente a produção é ato do cliente, no painel, e pede antes a série de produção: a série é por ambiente, e a de homologação não vai junto.
+O exemplo roda **em homologação**. Promover um emitente a produção é ato do cliente, no painel. A promoção não leva a numeração, porque a série é por ambiente: convém provisionar antes a série de produção, e sem ela a primeira nota de produção volta `404 series-not-provisioned`.
 
 ## Licença
 

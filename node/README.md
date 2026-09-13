@@ -41,7 +41,7 @@ node --disable-warning=ExperimentalWarning --experimental-strip-types test/demo.
 
 Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela em `src/telas/`, e cada página lista no rodapé as chamadas que fez, com status e tempo.
 
-1. **Configuração** mostra o que veio do `.env` e chama `GET /v1/contexto` para provar a credencial e o escopo. A emissão não tem parâmetro de ambiente: a credencial é de um emitente, e a nota sai no ambiente dele. Só as rotas de série aceitam um `ambiente` opcional, e este exemplo não o usa.
+1. **Configuração** mostra o que veio do `.env` e chama `GET /v1/contexto` para provar a credencial e o escopo. A emissão não tem parâmetro de ambiente: a credencial é de um emitente, e a nota sai no ambiente dele. O ambiente muda no próprio emitente, e as rotas de série aceitam um `ambiente` opcional para operar no outro; este exemplo não usa nenhum dos dois.
 
    É também onde fica **Recomeçar do zero**, que apaga o banco local inteiro e semeia os dados de exemplo de novo — o caminho para **trocar de emitente** sem misturar as notas de um com as do outro. Não chama a API: o emitente continua cadastrado, as notas emitidas continuam autorizadas e a credencial continua válida. O que se perde é local e irrecuperável: os `secret` da credencial operacional e do webhook, que a API mostra uma única vez. Por isso o botão exige confirmação.
 
@@ -58,7 +58,7 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
 
    A credencial de gestão **não emite**. A que emite é a operacional, que o passo 4 cunha a partir dela e guarda no banco local. Você só configura uma.
 
-   **A série é por ambiente.** Homologação e produção numeram separado: a série 1 de homologação e a de produção são duas, cada uma com o seu próximo número. Sem `ambiente` no corpo, o passo 5 provisiona no ambiente atual do emitente, que aqui é homologação. A série de produção se provisiona antes de promover o emitente; sem ela, a primeira nota de produção volta `404 series-not-provisioned`. O guia *Séries e numeração* da [Referência](https://flexdfe.com.br/docs) mostra como.
+   **A série é por ambiente.** Homologação e produção numeram separado: a série 1 de homologação e a de produção são duas, cada uma com o seu próximo número. Sem `ambiente` no corpo, o passo 5 provisiona no ambiente atual do emitente, que aqui é homologação. A promoção não cria a série de produção, e sem ela a primeira nota de produção volta `404 series-not-provisioned`: convém provisioná-la antes de promover. O guia *Séries e numeração* da [Referência](https://flexdfe.com.br/docs) mostra como.
 
    **Atalho, quando o emitente já existe na plataforma.** Os passos de 1 a 4 são o onboarding pela API, e existem porque um integrador precisa fazê-lo. Se o emitente já foi cadastrado no painel — com certificado, ativo, e com uma credencial **operacional** cunhada lá —, informe essa credencial no atalho do passo 1: a aplicação chama `GET /v1/contexto` para descobrir de quem ela é e `GET /v1/emitentes/{id}` para trazer a ficha, guarda as duas coisas no banco local e vai direto para a série. Duas leituras, nenhuma escrita, e nada é criado na plataforma. É o que um ERP faz de verdade quando o cliente entrega uma credencial pronta: a integração nunca cadastra ninguém, só se apresenta.
 
@@ -108,8 +108,8 @@ Os dois são terminais sem nota autorizada, e cada um se conserta num lugar dife
 | | `failed` | `blocked` |
 |---|---|---|
 | O que houve | A plataforma parou **antes** da SEFAZ (recusa antecipada) ou esgotou as tentativas | A **numeração** não deixou a nota sair: a SEFAZ acusou duplicidade, ou a série foi inativada, esgotou ou trocou de modo depois do aceite |
-| O motivo | Traz o **caminho do campo** que reprovou, ex.: `PIS_COFINS_AUSENTE em /det[1]/imposto/PIS` | Diz a causa e o ajuste, ex.: `a série está inativa e não aceita número novo; reative-a ou envie a nota por outra série` |
-| O que a tela oferece | **Reemitir com chave nova** (o mesmo corpo, outra `Idempotency-Key`) e consultar | **Consultar**. O ajuste é na série ou na numeração, fora da nota, e só quem opera sabe quando foi feito; feito ele, a nota se emite de novo em Nova nota. Reenviar com a mesma chave só devolveria a nota bloqueada |
+| O motivo | Traz o **caminho do campo** que reprovou, ex.: `PIS_COFINS_AUSENTE em /det[1]/imposto/PIS` | Diz a causa. Na série inativada, esgotada ou que trocou de modo, diz também o ajuste, ex.: `a série está inativa e não aceita número novo; reative-a ou envie a nota por outra série` |
+| O que a tela oferece | **Reemitir com chave nova** (o mesmo corpo, outra `Idempotency-Key`) e consultar | **Consultar**. Na duplicidade, revise a numeração; na série, faça o ajuste que o motivo diz. Os dois são fora da nota, e só quem opera sabe quando foram feitos; feito o ajuste, a nota se emite de novo em Nova nota. Reenviar com a mesma chave só devolveria a nota bloqueada |
 
 A nota que falhou fica no histórico local; a reemissão nasce apontando para ela.
 
