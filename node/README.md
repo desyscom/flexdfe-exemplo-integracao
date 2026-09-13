@@ -2,7 +2,7 @@
 
 Uma tela local, sem framework, que percorre o ciclo inteiro do emitente na API do Flex DFe: cadastro, certificado, série, emissão de NF-e e NFC-e, feed, webhook, XML, DANFE, consulta, cancelamento, carta de correção com o DACCE e inutilização. TypeScript executado direto pelo Node, sem build; SQLite pelo módulo nativo, sem nada para compilar.
 
-> Testado contra a API na tag **v0.1.0**. Se a Referência em `/docs` mudou depois disso, o que está aqui pode ter envelhecido. Não há CI nem smoke automatizado: a tag é a única defesa, junto com os testes, que só pegam a divergência depois que a API falsa for atualizada a partir da Referência.
+> Testado contra a API na tag **v0.3.1**. Se a Referência em `/docs` mudou depois disso, o que está aqui pode ter envelhecido. Não há CI nem smoke automatizado: a tag é a única defesa, junto com os testes, que só pegam a divergência depois que a API falsa for atualizada a partir da Referência.
 
 ## Pré-requisitos
 
