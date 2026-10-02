@@ -60,8 +60,8 @@ export type Opcoes = {
 // ---- Tipos das respostas que este exemplo lê. Só os campos usados; a Referência tem todos. ----
 
 export type Contexto =
-  | { escopo: 'emitente'; emitente: { id: string; cnpj: string; razao_social: string; ambiente: string } }
-  | { escopo: 'integrador'; integradorId: string; emitentes: { id: string; cnpj: string; razao_social: string }[] }
+  | { escopo: 'emitente'; emitente: { id: string; cnpj: string; razao_social: string; ambiente: string; tipos_documento: TipoDocumento[] } }
+  | { escopo: 'integrador'; integradorId: string; emitentes: { id: string; cnpj: string; razao_social: string; tipos_documento: TipoDocumento[] }[] }
   | { escopo: string; [k: string]: unknown };
 
 export type Certificado = {
@@ -74,10 +74,13 @@ export type Certificado = {
 
 export type Emitente = {
   id: string;
+  /** 14 caracteres: as 12 primeiras podem ser letras maiúsculas (CNPJ alfanumérico), as 2 últimas são dígitos. */
   cnpj: string;
   razao_social: string;
   nome_fantasia: string | null;
   inscricao_estadual: string;
+  /** A IM do CNPJ no município (`prest.im` da DPS). Só a NFS-e a usa; `null` quando não informada. */
+  inscricao_municipal: string | null;
   crt: 1 | 2 | 3 | 4;
   uf: string;
   municipio: string;
@@ -85,6 +88,8 @@ export type Emitente = {
   ambiente: 'homologacao' | 'producao';
   ativo: boolean;
   modelos: number[];
+  /** Os documentos habilitados, derivados das séries ativas do ambiente atual: não é um campo editável. */
+  tipos_documento: TipoDocumento[];
   certificado: Certificado | null;
   webhook: { url: string; ativo: boolean } | null;
 };
@@ -94,6 +99,8 @@ export type CriacaoEmitente = {
   razao_social: string;
   nome_fantasia?: string | null;
   inscricao_estadual: string;
+  /** Opcional: quem só emite NF-e não a preenche. A API tira espaço e pontuação antes de gravar. */
+  inscricao_municipal?: string | null;
   crt: 1 | 2 | 3 | 4;
   ambiente: 'homologacao' | 'producao';
   logradouro: string;
@@ -116,8 +123,23 @@ export type CredencialCunhada = {
   secret: string;
 };
 
-/** A série é por ambiente: a série 1 de homologação e a de produção são duas, cada uma com o seu próximo número. */
-export type Serie = { ambiente: 'homologacao' | 'producao'; modelo: 55 | 65; serie: number; mode: 'managed' | 'external'; active: boolean; nextNumber?: number };
+/** O documento que uma série numera: `dps` é a declaração da NFS-e, e a plataforma numera a DPS, não o número da NFS-e. */
+export type TipoDocumento = 'nfe' | 'nfce' | 'dps';
+
+/**
+ * A série é por ambiente e por documento: a série 1 de homologação e a de produção são duas, e a série 1 de NF-e
+ * e a série 1 de DPS também, cada uma com o seu próximo número. O `modelo` só existe na NF-e (55) e na NFC-e (65):
+ * a DPS não tem modelo, e vem sem o campo.
+ */
+export type Serie = {
+  ambiente: 'homologacao' | 'producao';
+  tipoDocumento: TipoDocumento;
+  modelo?: 55 | 65;
+  serie: number;
+  mode: 'managed' | 'external';
+  active: boolean;
+  nextNumber?: number;
+};
 
 export type Webhook = {
   url: string;

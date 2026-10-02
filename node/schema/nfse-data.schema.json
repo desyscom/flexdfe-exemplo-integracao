@@ -1,0 +1,1283 @@
+{
+  "$comment": "Copiado do flex-dfe na tag v0.5.0 (apps/api/openapi/nfse-data.schema.json) em 02/10/2026. Nao edite: substitua pela copia da tag seguinte quando o contrato mudar.",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "x-proveniencia": {
+    "gerado": "Artefato gerado automaticamente — NÃO EDITAR À MÃO.",
+    "descricao": "JSON Schema do campo `documento` do corpo de `POST /v1/nfse`.",
+    "regenerar": "npm run gen:schema -w apps/api"
+  },
+  "$ref": "#/definitions/NFSeData",
+  "definitions": {
+    "NFSeData": {
+      "type": "object",
+      "properties": {
+        "dCompet": {
+          "type": "string",
+          "description": "Data de competência do serviço, `AAAA-MM-DD`. É por ela que o ISSQN se apura e que a lista filtra."
+        },
+        "prest": {
+          "type": "object",
+          "properties": {
+            "regTrib": {
+              "type": "object",
+              "properties": {
+                "opSimpNac": {
+                  "type": "string",
+                  "enum": [
+                    "1",
+                    "2",
+                    "3"
+                  ],
+                  "description": "Situação perante o Simples Nacional: 1=Não optante; 2=MEI; 3=ME/EPP."
+                },
+                "regApTribSN": {
+                  "type": "string",
+                  "enum": [
+                    "1",
+                    "2",
+                    "3"
+                  ],
+                  "description": "Regime de apuração (só `opSimpNac=3`): 1=tudo pelo SN; 2=ISSQN por fora; 3=tudo por fora."
+                },
+                "regEspTrib": {
+                  "type": "string",
+                  "enum": [
+                    "0",
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                    "6",
+                    "9"
+                  ],
+                  "description": "Regime especial de tributação: 0=Nenhum … 6=Sociedade de Profissionais; 9=Outros."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false,
+          "description": "O que a nota informa sobre o prestador: só o regime de tributação, e cada campo dele é opcional. `opSimpNac` e `regApTribSN` derivam do CRT do cadastro, e o que vem aqui prevalece, campo a campo: com `opSimpNac` informado, o `regApTribSN` vem só da nota (e, sem ele na nota, não vai); com só o `regApTribSN`, o `opSimpNac` vem do CRT; sem nenhum dos dois, os dois vêm do CRT. O `regEspTrib` vem só daqui, com padrão `0` (Nenhum). CNPJ, inscrição municipal e telefone do prestador saem do cadastro, e o que vier deles aqui é ignorado."
+        },
+        "toma": {
+          "$ref": "#/definitions/PessoaNFSe"
+        },
+        "interm": {
+          "$ref": "#/definitions/PessoaNFSe"
+        },
+        "serv": {
+          "$ref": "#/definitions/ServicoNFSe"
+        },
+        "valores": {
+          "$ref": "#/definitions/ValoresNFSe"
+        },
+        "ibscbs": {
+          "$ref": "#/definitions/IbscbsNFSe"
+        }
+      },
+      "required": [
+        "dCompet",
+        "serv",
+        "valores"
+      ],
+      "additionalProperties": false,
+      "description": "**O `documento` do `POST /v1/nfse`** — o `CanonicalInput` do core sem o que a plataforma resolve (C7). Saem o `config` (versão, ambiente do comando e `verAplic` da plataforma), o cabeçalho da DPS (série e número vêm do envelope; `dhEmi`, fixado pela plataforma; `tpEmit`, sempre `1`; `cLocEmi`, do cadastro) e o prestador, que a plataforma monta campo a campo com o cadastro. Do prestador, a nota só informa o regime de tributação, e a precedência entre ela e o CRT do cadastro está em `resolverRegTrib`. Mora na plataforma, e não no core, porque a lista do que sai é decisão da plataforma: o `regTrib` opcional só existe porque ela deriva o resto do CRT, que o core não conhece."
+    },
+    "PessoaNFSe": {
+      "type": "object",
+      "properties": {
+        "cnpj": {
+          "type": "string"
+        },
+        "cpf": {
+          "type": "string"
+        },
+        "nif": {
+          "type": "string"
+        },
+        "cNaoNIF": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2"
+          ],
+          "description": "Motivo de não ter NIF (estrangeiro): 0=não informado na origem; 1=dispensado; 2=não exigência."
+        },
+        "caepf": {
+          "type": "string",
+          "description": "Cadastro de Atividade Econômica da Pessoa Física (CAEPF, 14 díg.) — só prestador PF."
+        },
+        "im": {
+          "type": "string"
+        },
+        "razaoSocial": {
+          "type": "string"
+        },
+        "endereco": {
+          "$ref": "#/definitions/EnderecoNFSe"
+        },
+        "fone": {
+          "type": "string",
+          "description": "Telefone (`[0-9]{6,20}` — DDD+número, ou país+localidade+número no exterior)."
+        },
+        "email": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Pessoa envolvida na operação (tomador/intermediário). Identificação **exclusiva** por **um** de `cnpj`/`cpf`/`nif`/`cNaoNIF` (`choice` resolvido por presença — exatamente um). `nif` é o número fiscal estrangeiro (texto 1–40); `cNaoNIF` (`0|1|2`) é o motivo de não ter NIF. Campos opcionais do ator: `caepf`, `im`, `razaoSocial` (`xNome`), `endereco` (`end`), `fone`, `email`."
+    },
+    "EnderecoNFSe": {
+      "type": "object",
+      "properties": {
+        "nacional": {
+          "$ref": "#/definitions/EnderecoNacionalNFSe"
+        },
+        "exterior": {
+          "$ref": "#/definitions/EnderecoExteriorNFSe"
+        },
+        "xLgr": {
+          "type": "string"
+        },
+        "nro": {
+          "type": "string"
+        },
+        "xCpl": {
+          "type": "string"
+        },
+        "xBairro": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "xLgr",
+        "nro",
+        "xBairro"
+      ],
+      "additionalProperties": false,
+      "description": "Endereço de um ator (`end`, `TCEndereco`): um `choice` `nacional` **xor** `exterior` seguido dos campos comuns (`xLgr`/`nro`/`xCpl?`/`xBairro`). Ambos ausentes com `end` presente é incoerência (issue, sem bloquear)."
+    },
+    "EnderecoNacionalNFSe": {
+      "type": "object",
+      "properties": {
+        "cMun": {
+          "type": "string"
+        },
+        "cep": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cMun",
+        "cep"
+      ],
+      "additionalProperties": false,
+      "description": "Endereço nacional (`endNac`, `TCEnderNac`): município IBGE + CEP. Ramo do `choice` de `end` para o ator no país. `cMun` é o código IBGE de 7 dígitos; `cep` os 8 dígitos do CEP."
+    },
+    "EnderecoExteriorNFSe": {
+      "type": "object",
+      "properties": {
+        "cPais": {
+          "type": "string"
+        },
+        "cEndPost": {
+          "type": "string"
+        },
+        "xCidade": {
+          "type": "string"
+        },
+        "xEstProvReg": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cPais",
+        "cEndPost",
+        "xCidade",
+        "xEstProvReg"
+      ],
+      "additionalProperties": false,
+      "description": "Endereço no exterior (`endExt`, `TCEnderExt`): país ISO + endereçamento postal + cidade + estado/província/ região. Ramo do `choice` de `end` para o ator estrangeiro. `cPais` são as 2 letras ISO do país."
+    },
+    "ServicoNFSe": {
+      "type": "object",
+      "properties": {
+        "cLocPrestacao": {
+          "type": "string"
+        },
+        "cPaisPrestacao": {
+          "type": "string"
+        },
+        "cTribNac": {
+          "type": "string"
+        },
+        "cTribMun": {
+          "type": "string"
+        },
+        "xDescServ": {
+          "type": "string"
+        },
+        "cNBS": {
+          "type": "string",
+          "description": "Código NBS 2.0 (`[0-9]{9}`, OPT) — Nomenclatura Brasileira de Serviços, ANEXO_B. Domínio conferido no."
+        },
+        "comExt": {
+          "$ref": "#/definitions/ComercioExteriorNFSe"
+        },
+        "obra": {
+          "$ref": "#/definitions/ObraNFSe"
+        },
+        "atvEvento": {
+          "$ref": "#/definitions/AtividadeEventoNFSe"
+        },
+        "infoCompl": {
+          "$ref": "#/definitions/InfoComplementaresNFSe"
+        }
+      },
+      "required": [
+        "cTribNac",
+        "xDescServ"
+      ],
+      "additionalProperties": false,
+      "description": "Serviço prestado (`serv`/`cServ`). `cTribNac` (6 díg.) é o código de tributação nacional do ISSQN — o discriminador que o `Ctx` usa para o eixo \"grupo por `cTribNac`\" (a matriz `cTribNac→grupo` é o. Local da prestação por município (IBGE) **xor** país (ISO)."
+    },
+    "ComercioExteriorNFSe": {
+      "type": "object",
+      "properties": {
+        "mdPrestacao": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4"
+          ],
+          "description": "Modo de prestação: 0=Desconhecido; 1=Transfronteiriço; 2=Consumo no Brasil; 3=Mov. temp. de PF; 4=Consumo no exterior."
+        },
+        "vincPrest": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "9"
+          ],
+          "description": "Vínculo entre as partes: 0=Sem vínculo … 6=Outro vínculo; 9=Desconhecido."
+        },
+        "tpMoeda": {
+          "type": "string",
+          "description": "Moeda da transação (código BACEN, `[0-9]{3}`)."
+        },
+        "vServMoeda": {
+          "type": "number",
+          "description": "Valor do serviço em moeda estrangeira (`TSDec15V2`)."
+        },
+        "mecAFComexP": {
+          "type": "string",
+          "description": "Mecanismo de apoio/fomento ao comércio exterior do **prestador** (`00`–`08`)."
+        },
+        "mecAFComexT": {
+          "type": "string",
+          "description": "Mecanismo de apoio/fomento ao comércio exterior do **tomador** (`00`–`26`)."
+        },
+        "movTempBens": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "description": "Movimentação temporária de bens: 0=Desconhecido; 1=Não; 2=Vinc. à DI; 3=Vinc. à DE."
+        },
+        "nDI": {
+          "type": "string",
+          "description": "Número da Declaração de Importação (DI/DSI/DA/DRI-E) averbado (1–12)."
+        },
+        "nRE": {
+          "type": "string",
+          "description": "Número do Registro de Exportação (RE) averbado (1–12)."
+        },
+        "mdic": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ],
+          "description": "Compartilhar a NFS-e com a SECEX/MDIC: 0=Não enviar; 1=Enviar."
+        }
+      },
+      "required": [
+        "mdPrestacao",
+        "vincPrest",
+        "tpMoeda",
+        "vServMoeda",
+        "mecAFComexP",
+        "mecAFComexT",
+        "movTempBens",
+        "mdic"
+      ],
+      "additionalProperties": false,
+      "description": "Comércio exterior de serviço (`serv.comExt`, `TCComExterior`, `tiposComplexos_v1.01.xsd:1364`, `minOccurs=0`). Para exportação/importação de serviço(não calcula). Todos os campos do `sequence` são REQ ao XSD exceto `nDI`/`nRE` (`minOccurs=0`). Códigos como string (zeros à esquerda relevantes nos mecanismos de apoio, `[0-9]{2}`)."
+    },
+    "ObraNFSe": {
+      "type": "object",
+      "properties": {
+        "inscImobFisc": {
+          "type": "string"
+        },
+        "cObra": {
+          "type": "string",
+          "description": "Número de identificação da obra (CNO/CEI). Ramo `cObra` do `choice`."
+        },
+        "cCIB": {
+          "type": "string",
+          "description": "Código do Cadastro Imobiliário Brasileiro (CIB, 8 pos.). Ramo `cCIB` do `choice`."
+        },
+        "endObra": {
+          "$ref": "#/definitions/EnderecoObraEventoNFSe",
+          "description": "Endereço da obra (`end`, `TCEnderObraEvento`). Ramo `end` do `choice`."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Obra de construção civil (`serv.obra`, `TCInfoObra`, `tiposComplexos_v1.01.xsd:1518`, `minOccurs=0`). Para o prestador emitir serviços de construção: `inscImobFisc?` (inscrição imobiliária fiscal) + um `choice` **exclusivo** de identificação da obra — `cObra` (Cadastro Nacional de Obras/CNO) **xor** `cCIB` (Cadastro Imobiliário Brasileiro, 8 pos.) **xor** `endObra` (endereço da obra). A matriz `cTribNac→grupo obrigatório` (ANEXO_B) é o."
+    },
+    "EnderecoObraEventoNFSe": {
+      "type": "object",
+      "properties": {
+        "cep": {
+          "type": "string",
+          "description": "Ramo nacional: só o CEP (8 díg.) — sem `cMun` (o endereço de obra/evento não o carrega)."
+        },
+        "exterior": {
+          "$ref": "#/definitions/EnderecoExteriorSimplesNFSe"
+        },
+        "xLgr": {
+          "type": "string"
+        },
+        "nro": {
+          "type": "string"
+        },
+        "xCpl": {
+          "type": "string"
+        },
+        "xBairro": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "xLgr",
+        "nro",
+        "xBairro"
+      ],
+      "additionalProperties": false,
+      "description": "Endereço de obra/evento (`TCEnderObraEvento` ≡ `TCEnderecoSimples`, `tiposComplexos_v1.01.xsd:1236`/`:1139` — estruturas idênticas): um `choice` `nacional` (**só o CEP**, sem `cMun` — difere do `endNac` do ator) **xor** `exterior` (`EnderecoExteriorSimplesNFSe`, sem `cPais`) seguido dos campos comuns (`xLgr`/`nro`/`xCpl?`/ `xBairro`)."
+    },
+    "EnderecoExteriorSimplesNFSe": {
+      "type": "object",
+      "properties": {
+        "cEndPost": {
+          "type": "string"
+        },
+        "xCidade": {
+          "type": "string"
+        },
+        "xEstProvReg": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cEndPost",
+        "xCidade",
+        "xEstProvReg"
+      ],
+      "additionalProperties": false,
+      "description": "Endereço no exterior **simples** (`endExt`, `TCEnderExtSimples`, `tiposComplexos_v1.01.xsd:1216`) — o ramo estrangeiro do endereço de obra/evento. Difere do `EnderecoExteriorNFSe` do ator: **não tem `cPais`** (só endereçamento postal + cidade + estado/província/região)."
+    },
+    "AtividadeEventoNFSe": {
+      "type": "object",
+      "properties": {
+        "xNome": {
+          "type": "string"
+        },
+        "dtIni": {
+          "type": "string",
+          "description": "Data de início do evento (`AAAA-MM-DD`)."
+        },
+        "dtFim": {
+          "type": "string",
+          "description": "Data de fim do evento (`AAAA-MM-DD`)."
+        },
+        "idAtvEvt": {
+          "type": "string",
+          "description": "Identificação da atividade de evento (código municipal). Ramo `idAtvEvt` do `choice`."
+        },
+        "endEvento": {
+          "$ref": "#/definitions/EnderecoObraEventoNFSe",
+          "description": "Endereço/local do evento (`end`, `TCEnderecoSimples`). Ramo `end` do `choice`."
+        }
+      },
+      "required": [
+        "xNome",
+        "dtIni",
+        "dtFim"
+      ],
+      "additionalProperties": false,
+      "description": "Atividade de evento (`serv.atvEvento`, `TCAtvEvento`, `tiposComplexos_v1.01.xsd:1486`, `minOccurs=0`). Para serviços de evento (artístico/cultural/esportivo): `xNome` + `dtIni`/`dtFim` (datas-calendário `AAAA-MM-DD`) + um `choice` **exclusivo** — `idAtvEvt` (código do evento determinado pela Administração Tributária Municipal) **xor** `endEvento` (endereço/local do evento, `TCEnderecoSimples`)."
+    },
+    "InfoComplementaresNFSe": {
+      "type": "object",
+      "properties": {
+        "idDocTec": {
+          "type": "string",
+          "description": "Identificador de documento de responsabilidade técnica: ART, RRT, DRT, etc. (1–40)."
+        },
+        "docRef": {
+          "type": "string",
+          "description": "Documento de referência (chave/número da nota, contrato, etc.) que subsidia a emissão (1–255)."
+        },
+        "xPed": {
+          "type": "string",
+          "description": "Número do pedido/ordem de compra/serviço/projeto (1–60)."
+        },
+        "itensPed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Itens do pedido (`gItemPed/xItemPed`, cada 1–60; 1–99 itens). Vazia/ausente ⇒ `gItemPed` omitido."
+        },
+        "xInfComp": {
+          "type": "string",
+          "description": "Informações complementares de texto livre (1–2000)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Informações complementares do serviço (`serv.infoCompl`, `TCInfoCompl`, `tiposComplexos_v1.01.xsd:1551`, `minOccurs=0`). Anexável a qualquer serviço — **todos** os campos são `minOccurs=0`. `itensPed` (mapeado ao `gItemPed/xItemPed[1-99]`) é a lista de itens do pedido/ordem; vazia/ausente ⇒ `gItemPed` omitido. Transcrição pura (nenhum cálculo)."
+    },
+    "ValoresNFSe": {
+      "type": "object",
+      "properties": {
+        "vServ": {
+          "type": "number"
+        },
+        "desconto": {
+          "$ref": "#/definitions/DescontoNFSe",
+          "description": "Descontos condicionado/incondicionado (`vDescCondIncond`), opcional."
+        },
+        "dedRed": {
+          "$ref": "#/definitions/DeducaoReducaoNFSe",
+          "description": "Dedução/redução da base de cálculo (`vDedRed`), opcional — `choice` percentual/valor/documentos."
+        },
+        "tribMun": {
+          "$ref": "#/definitions/TributacaoMunicipalNFSe"
+        },
+        "tribFed": {
+          "$ref": "#/definitions/TributosFederaisNFSe",
+          "description": "Tributos federais (`tribFed`), opcional — `piscofins` + retenções `vRetCP`/`vRetIRRF`/`vRetCSLL`."
+        },
+        "totTrib": {
+          "$ref": "#/definitions/TotalTributosNFSe"
+        }
+      },
+      "required": [
+        "vServ",
+        "tribMun",
+        "totTrib"
+      ],
+      "additionalProperties": false,
+      "description": "Valores do serviço (`valores`). O módulo **calcula nada**: transcreve. O mínimo mandatório de ponta a ponta é `vServPrest.vServ` + `trib.tribMun` + `trib.totTrib`; entre o `vServ` e a tributação entram, opcionais, os descontos (`desconto`→`vDescCondIncond`) e a dedução/redução (`dedRed`→`vDedRed`). A tributação (`trib`) carrega `tribMun` (REQ), `tribFed` (OPT) e `totTrib` (REQ)."
+    },
+    "DescontoNFSe": {
+      "type": "object",
+      "properties": {
+        "vDescIncond": {
+          "type": "number",
+          "description": "Valor monetário do desconto **incondicionado** (R$) — abatido independentemente de condição."
+        },
+        "vDescCond": {
+          "type": "number",
+          "description": "Valor monetário do desconto **condicionado** (R$) — sujeito a condição (ex.: pagamento à vista)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Descontos do serviço (`valores.vDescCondIncond`, `TCVDescCondIncond`, `tiposComplexos_v1.01.xsd:1677`, `minOccurs=0`). Ambos os valores são monetários (`TSDec15V2`) e `minOccurs=0`. Nenhum dos dois informado ⇒ o grupo é omitido (sem `vDescCondIncond` vazio). Transcrição pura — o módulo **não** abate o desconto do `vServ`; quem fecha a conta é a SEFIN Nacional."
+    },
+    "DeducaoReducaoNFSe": {
+      "type": "object",
+      "properties": {
+        "pDR": {
+          "type": "number",
+          "description": "Ramo `pDR`: percentual padrão de dedução/redução (`TSDec3V2`)."
+        },
+        "vDR": {
+          "type": "number",
+          "description": "Ramo `vDR`: valor monetário padrão de dedução/redução (R$, `TSDec15V2`)."
+        },
+        "documentos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DocumentoDeducaoNFSe"
+          },
+          "description": "Ramo `documentos`: documentos que lastreiam a dedução (`docDedRed[1-1000]`)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Dedução/redução da base de cálculo (`valores.vDedRed`, `TCInfoDedRed`, `tiposComplexos_v1.01.xsd:1692`, `minOccurs=0`). É um `choice` **exclusivo** — **exatamente um** de: `pDR` (percentual padrão de dedução/redução), `vDR` (valor monetário padrão) **ou** `documentos` (lista de `DocumentoDeducaoNFSe`, 1–1000). Transcrição pura."
+    },
+    "DocumentoDeducaoNFSe": {
+      "type": "object",
+      "properties": {
+        "chNFSe": {
+          "type": "string",
+          "description": "Ramo `chNFSe`: chave de acesso da NFS-e nacional (50 posições; letras só no CNPJ do emitente)."
+        },
+        "chNFe": {
+          "type": "string",
+          "description": "Ramo `chNFe`: chave de acesso da NF-e (44 posições; letras só no CNPJ do emitente)."
+        },
+        "nfSeMun": {
+          "$ref": "#/definitions/DocNFSeMunNFSe",
+          "description": "Ramo `NFSeMun`: outra NFS-e (padrão municipal anterior)."
+        },
+        "nfNFS": {
+          "$ref": "#/definitions/DocNFNFSNFSe",
+          "description": "Ramo `NFNFS`: NF/NFS não-eletrônica."
+        },
+        "nDocFisc": {
+          "type": "string",
+          "description": "Ramo `nDocFisc`: número de documento fiscal (texto 1–255)."
+        },
+        "nDoc": {
+          "type": "string",
+          "description": "Ramo `nDoc`: número de documento não fiscal (texto 1–255)."
+        },
+        "tpDedRed": {
+          "$ref": "#/definitions/TipoDeducaoReducao"
+        },
+        "xDescOutDed": {
+          "type": "string",
+          "description": "Descrição da dedução/redução quando `tpDedRed=99` (Outras deduções), 1–150."
+        },
+        "dtEmiDoc": {
+          "type": "string",
+          "description": "Data de emissão do documento dedutível (`AAAA-MM-DD`)."
+        },
+        "vDedutivelRedutivel": {
+          "type": "number",
+          "description": "Valor total dedutível/redutível no documento informado (R$)."
+        },
+        "vDeducaoReducao": {
+          "type": "number",
+          "description": "Valor efetivamente deduzido/reduzido do serviço desta NFS-e (R$, ≤ `vDedutivelRedutivel`)."
+        },
+        "fornec": {
+          "$ref": "#/definitions/PessoaNFSe",
+          "description": "Fornecedor (`fornec`, `TCInfoPessoa`) da dedução de serviços — mesma estrutura de tomador/intermediário."
+        }
+      },
+      "required": [
+        "tpDedRed",
+        "dtEmiDoc",
+        "vDedutivelRedutivel",
+        "vDeducaoReducao"
+      ],
+      "additionalProperties": false,
+      "description": "Documento que lastreia uma dedução/redução (`docDedRed`, `TCDocDedRed`, `tiposComplexos_v1.01.xsd:1732`). Abre com um `choice` **exclusivo** de referência ao documento — **exatamente um** de `chNFSe` (chave NFS-e nacional, 50 díg.) | `chNFe` (chave NF-e, 44 díg.) | `nfSeMun` (`DocNFSeMunNFSe`) | `nfNFS` (`DocNFNFSNFSe`) | `nDocFisc` (nº de documento fiscal) | `nDoc` (nº de documento não fiscal). Em seguida: `tpDedRed` (REQ), `xDescOutDed?` (descrição quando `tpDedRed=99`), `dtEmiDoc` (REQ, `AAAA-MM-DD`), `vDedutivelRedutivel` (REQ, valor total dedutível no documento), `vDeducaoReducao` (REQ, valor efetivamente deduzido — ≤ o dedutível) e o `fornec?` (`PessoaNFSe`, `TCInfoPessoa`)."
+    },
+    "DocNFSeMunNFSe": {
+      "type": "object",
+      "properties": {
+        "cMunNFSeMun": {
+          "type": "string",
+          "description": "Código do município emissor da NFS-e municipal (IBGE, `[0-9]{7}`)."
+        },
+        "nNFSeMun": {
+          "type": "string",
+          "description": "Número da NFS-e municipal (`[0-9]{15}`)."
+        },
+        "cVerifNFSeMun": {
+          "type": "string",
+          "description": "Código de verificação da NFS-e municipal (alfanumérico, 1–9)."
+        }
+      },
+      "required": [
+        "cMunNFSeMun",
+        "nNFSeMun",
+        "cVerifNFSeMun"
+      ],
+      "additionalProperties": false,
+      "description": "Documento de **outra NFS-e** (padrão municipal anterior) usado para dedução/redução (`NFSeMun`, `TCDocOutNFSe`, `tiposComplexos_v1.01.xsd:1817`). Ramo `NFSeMun` do `choice` de referência do `DocumentoDeducaoNFSe`: município emissor (IBGE, 7 díg.) + número (15 díg.) + código de verificação (alfanum. 1–9)."
+    },
+    "DocNFNFSNFSe": {
+      "type": "object",
+      "properties": {
+        "nNFS": {
+          "type": "string",
+          "description": "Número da NF/NFS (`[0-9]{7}`)."
+        },
+        "modNFS": {
+          "type": "string",
+          "description": "Modelo da NF/NFS (`[0-9]{15}`)."
+        },
+        "serieNFS": {
+          "type": "string",
+          "description": "Série da NF/NFS (alfanumérica, 1–15)."
+        }
+      },
+      "required": [
+        "nNFS",
+        "modNFS",
+        "serieNFS"
+      ],
+      "additionalProperties": false,
+      "description": "Documento de **NF/NFS não-eletrônica** usado para dedução/redução (`NFNFS`, `TCDocNFNFS`, `tiposComplexos_v1.01.xsd:1837`). Ramo `NFNFS` do `choice` de referência: número (7 díg.) + modelo (15 díg.) + série (alfanum. 1–15)."
+    },
+    "TipoDeducaoReducao": {
+      "type": "string",
+      "enum": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "99"
+      ],
+      "description": "Tipo de dedução/redução (`tpDedRed`, `TSIdeDedRed`): `1`=Alimentação/bebidas/frigobar; `2`=Materiais; `3`=Produção externa; `4`=Reembolso de despesas; `5`=Repasse consorciado; `6`=Repasse plano de saúde; `7`=Serviços; `8`=Subempreitada de mão de obra; `9`=Profissional parceiro; `99`=Outras deduções."
+    },
+    "TributacaoMunicipalNFSe": {
+      "type": "object",
+      "properties": {
+        "tribISSQN": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ],
+          "description": "Situação de tributação do ISSQN: 1=Tributável; 2=Imunidade; 3=Exportação; 4=Não incidência."
+        },
+        "cPaisResult": {
+          "type": "string",
+          "description": "País (ISO `[A-Z]{2}`) onde se verificou o resultado da prestação — caso de exportação de serviço."
+        },
+        "tpImunidade": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5"
+          ],
+          "description": "Tipo de imunidade do ISSQN (só `tribISSQN=2`): 0=Não informada na origem; 1–5=hipóteses do CF88 Art 150 VI."
+        },
+        "exigSusp": {
+          "$ref": "#/definitions/ExigibilidadeSuspensaNFSe",
+          "description": "Exigibilidade suspensa do ISSQN (`exigSusp`), opcional."
+        },
+        "bm": {
+          "$ref": "#/definitions/BeneficioMunicipalNFSe",
+          "description": "Benefício municipal (`BM`), opcional — `choice` valor/percentual de redução da BC."
+        },
+        "tpRetISSQN": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3"
+          ],
+          "description": "Tipo de retenção do ISSQN: 1=Não retido; 2=Retido pelo tomador; 3=Retido pelo intermediário."
+        },
+        "pAliq": {
+          "type": "number",
+          "description": "Alíquota (%) do ISSQN — transcrita quando o município de incidência não pertence ao Sistema Nacional."
+        }
+      },
+      "required": [
+        "tribISSQN",
+        "tpRetISSQN"
+      ],
+      "additionalProperties": false,
+      "description": "Tributação municipal do ISSQN (`trib.tribMun`, `TCTribMunicipal`, obrigatória). Mínimo mandatório: situação do ISSQN (`tribISSQN`) + tipo de retenção (`tpRetISSQN`). Os opcionais do `sequence` entre eles: `cPaisResult` (país do resultado, só exportação), `tpImunidade` (tipo da imunidade, só `tribISSQN=2`), `exigSusp` (exigibilidade suspensa) e `bm` (benefício municipal). O módulo **calcula nada**: transcreve tudo, inclusive `pAliq`."
+    },
+    "ExigibilidadeSuspensaNFSe": {
+      "type": "object",
+      "properties": {
+        "tpSusp": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2"
+          ],
+          "description": "Opção de exigibilidade suspensa: 1=Decisão judicial; 2=Processo administrativo."
+        },
+        "nProcesso": {
+          "type": "string",
+          "description": "Número do processo judicial/administrativo da suspensão (`[0-9]{30}`)."
+        }
+      },
+      "required": [
+        "tpSusp",
+        "nProcesso"
+      ],
+      "additionalProperties": false,
+      "description": "Exigibilidade suspensa do ISSQN (`tribMun.exigSusp`, `TCExigSuspensa`, `tiposComplexos_v1.01.xsd:1976`, `minOccurs=0`). Quando o crédito está com a exigibilidade suspensa: tipo da suspensão (`tpSusp`) + número do processo (`nProcesso`, `[0-9]{30}`). Ambos REQ **dentro** do grupo; o grupo todo é opcional. Transcrição pura."
+    },
+    "BeneficioMunicipalNFSe": {
+      "type": "object",
+      "properties": {
+        "nBM": {
+          "type": "string",
+          "description": "Identificador do benefício municipal (`[0-9]{14}`: 7 díg. IBGE + 2 tipo + 5 sequencial)."
+        },
+        "vRedBCBM": {
+          "type": "number",
+          "description": "Ramo `vRedBCBM`: valor monetário de redução da BC do ISSQN (R$, `TSDec15V2`)."
+        },
+        "pRedBCBM": {
+          "type": "number",
+          "description": "Ramo `pRedBCBM`: percentual de redução da BC do ISSQN (`TSDec3V2`)."
+        }
+      },
+      "required": [
+        "nBM"
+      ],
+      "additionalProperties": false,
+      "description": "Benefício municipal do ISSQN (`tribMun.BM`, `TCBeneficioMunicipal`, `tiposComplexos_v1.01.xsd:1934`, `minOccurs=0`). Identificador do benefício parametrizado pelo município (`nBM`, `[0-9]{14}`) + um `choice` **exclusivo** de redução da base de cálculo — `vRedBCBM` (valor) **xor** `pRedBCBM` (percentual), ambos `minOccurs=0` no `choice`. Transcrição pura."
+    },
+    "TributosFederaisNFSe": {
+      "type": "object",
+      "properties": {
+        "piscofins": {
+          "$ref": "#/definitions/PisCofinsNFSe",
+          "description": "Grupo PIS/COFINS, opcional."
+        },
+        "vRetCP": {
+          "type": "number",
+          "description": "Valor monetário da Contribuição Previdenciária (CP) retida (R$, `TSDec15V2`)."
+        },
+        "vRetIRRF": {
+          "type": "number",
+          "description": "Valor monetário do IRRF retido (R$, `TSDec15V2`)."
+        },
+        "vRetCSLL": {
+          "type": "number",
+          "description": "Valor monetário da CSLL retida (R$, `TSDec15V2`)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Tributos federais (`trib.tribFed`, `TCTribFederal`, `tiposComplexos_v1.01.xsd:1995`, `minOccurs=0`). Grupo `piscofins` (`PisCofinsNFSe`) e as retenções federais `vRetCP`/`vRetIRRF`/`vRetCSLL` — **todos** `minOccurs=0`. O grupo inteiro é opcional; ausente (ou sem nenhum conteúdo) ⇒ omitido (sem `tribFed` vazio). Transcrição pura."
+    },
+    "PisCofinsNFSe": {
+      "type": "object",
+      "properties": {
+        "cst": {
+          "type": "string",
+          "description": "Código de Situação Tributária do PIS/COFINS (`TSTipoCST`, enumeração: `00`–`09`, `49`–`56`, `60`–`67`, `70`–`75`, `98`, `99`)."
+        },
+        "vBCPisCofins": {
+          "type": "number",
+          "description": "Base de cálculo do PIS/COFINS (R$, `TSDec15V2`)."
+        },
+        "pAliqPis": {
+          "type": "number",
+          "description": "Alíquota do PIS (%, `TSDec2V2`)."
+        },
+        "pAliqCofins": {
+          "type": "number",
+          "description": "Alíquota da COFINS (%, `TSDec2V2`)."
+        },
+        "vPis": {
+          "type": "number",
+          "description": "Valor do débito de PIS (R$, `TSDec15V2`)."
+        },
+        "vCofins": {
+          "type": "number",
+          "description": "Valor do débito de COFINS (R$, `TSDec15V2`)."
+        },
+        "tpRetPisCofins": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ],
+          "description": "Tipo de retenção do PIS/COFINS/CSLL (`0`–`9`)."
+        }
+      },
+      "required": [
+        "cst"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo PIS/COFINS dos tributos federais (`tribFed.piscofins`, `TCTribOutrosPisCofins`, `tiposComplexos_v1.01.xsd:2019`, `minOccurs=0`). `cst` (Código de Situação Tributária do PIS/COFINS) é REQ; bases/alíquotas/valores e o tipo de retenção são `minOccurs=0`. Transcrição pura — inclusive as alíquotas, que o módulo **não** aplica a base alguma."
+    },
+    "TotalTributosNFSe": {
+      "type": "object",
+      "properties": {
+        "vTotTrib": {
+          "$ref": "#/definitions/TotalTributosMonetNFSe",
+          "description": "Ramo `vTotTrib`: valores monetários totais aproximados (federal/estadual/municipal)."
+        },
+        "pTotTrib": {
+          "$ref": "#/definitions/TotalTributosPercentNFSe",
+          "description": "Ramo `pTotTrib`: percentuais totais aproximados (federal/estadual/municipal)."
+        },
+        "indTotTrib": {
+          "type": "string",
+          "const": "0",
+          "description": "Ramo `indTotTrib`: indicador \"sem informação de tributos\" (Decreto 8.264/2014), valor fixo `'0'`."
+        },
+        "pTotTribSN": {
+          "type": "number",
+          "description": "Ramo `pTotTribSN`: percentual aproximado total dos tributos da alíquota do Simples Nacional (%, `TSDec2V2`)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Total aproximado de tributos (`trib.totTrib`, `TCTribTotal`, Lei da Transparência, obrigatório). É um `choice` **exclusivo** — **exatamente um** de: `vTotTrib` (valores monetários, `TotalTributosMonetNFSe`), `pTotTrib` (percentuais, `TotalTributosPercentNFSe`), `indTotTrib=0` (sem informação) **ou** `pTotTribSN` (percentual único do Simples Nacional). Nenhum dos quatro ⇒ incoerência (`CLASSIF_INCOERENTE`, sem bloquear)."
+    },
+    "TotalTributosMonetNFSe": {
+      "type": "object",
+      "properties": {
+        "vTotTribFed": {
+          "type": "number"
+        },
+        "vTotTribEst": {
+          "type": "number"
+        },
+        "vTotTribMun": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "vTotTribFed",
+        "vTotTribEst",
+        "vTotTribMun"
+      ],
+      "additionalProperties": false,
+      "description": "Ramo `vTotTrib` (monetário) do `totTrib` (`TCTribTotalMonet`): tributos federais/estaduais/municipais (R$)."
+    },
+    "TotalTributosPercentNFSe": {
+      "type": "object",
+      "properties": {
+        "pTotTribFed": {
+          "type": "number"
+        },
+        "pTotTribEst": {
+          "type": "number"
+        },
+        "pTotTribMun": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "pTotTribFed",
+        "pTotTribEst",
+        "pTotTribMun"
+      ],
+      "additionalProperties": false,
+      "description": "Ramo `pTotTrib` (percentual) do `totTrib` (`TCTribTotalPercent`): tributos federais/estaduais/municipais (%)."
+    },
+    "IbscbsNFSe": {
+      "type": "object",
+      "properties": {
+        "finNFSe": {
+          "type": "string",
+          "const": "0",
+          "description": "Finalidade da emissão da NFS-e (`finNFSe`): único valor `'0'` (NFS-e regular)."
+        },
+        "indFinal": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ],
+          "description": "Operação de uso/consumo pessoal (art. 57): 0=Não; 1=Sim. Opcional."
+        },
+        "cIndOp": {
+          "type": "string",
+          "description": "Código indicador da operação de fornecimento (`[0-9]{6}`, ANEXO_C)."
+        },
+        "tpOper": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5"
+          ],
+          "description": "Tipo de operação com entes governamentais/imóveis: 1–5 (ver XSD). Opcional."
+        },
+        "refNFSe": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "NFS-e referenciadas (`gRefNFSe/refNFSe`, cada uma com 50 posições; 1–99). Vazia/ausente ⇒ `gRefNFSe` omitido."
+        },
+        "tpEnteGov": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4"
+          ],
+          "description": "Tipo de ente governamental: 1=União; 2=Estado; 3=DF; 4=Município. Opcional."
+        },
+        "indDest": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ],
+          "description": "A respeito do destinatário: 0=tomador=adquirente=destinatário; 1=destinatário ≠ adquirente."
+        },
+        "dest": {
+          "$ref": "#/definitions/DestinatarioIbscbsNFSe",
+          "description": "Destinatário (`dest`), opcional — presente quando `indDest=1` (destinatário ≠ tomador)."
+        },
+        "imovel": {
+          "$ref": "#/definitions/ImovelIbscbsNFSe",
+          "description": "Bens imóveis (`imovel`), opcional — operações sobre imóveis exceto obras."
+        },
+        "reeRepRes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DocumentoReeRepResNFSe"
+          },
+          "description": "Documentos de reembolso/repasse/ressarcimento (`gReeRepRes/documentos`, 1–1000). Vazia/ausente ⇒ `gReeRepRes` omitido."
+        },
+        "tributos": {
+          "$ref": "#/definitions/TributosIbscbsNFSe",
+          "description": "Situação e classificação tributária do IBS/CBS (`valores.trib.gIBSCBS`, REQ)."
+        }
+      },
+      "required": [
+        "finNFSe",
+        "cIndOp",
+        "indDest",
+        "tributos"
+      ],
+      "additionalProperties": false,
+      "description": "Grupo informativo da **Reforma Tributária** na DPS (`infDPS.IBSCBS`, `TCRTCInfoIBSCBS`, `tiposComplexos_v1.01.xsd:2207`, `minOccurs=0`). O contribuinte **informa** classificação e indicadores; **alíquota e valor efetivos voltam calculados na NFS-e** — o módulo **não calcula**. Obrigatoriedade suspensa hoje; a estrutura entra agora . **Cabeçalho:** `finNFSe` (fixo `'0'`) + `indFinal?` + `cIndOp` (REQ, `[0-9]{6}`, ANEXO_C) + `tpOper?` + `refNFSe?` (lista do `gRefNFSe`, 1–99 chaves) + `tpEnteGov?` + `indDest` (REQ) + `dest?` (`DestinatarioIbscbsNFSe`) + `imovel?` (`ImovelIbscbsNFSe`). **Valores:** `reeRepRes?` (lista do `gReeRepRes`, 1–1000 documentos — `DocumentoReeRepResNFSe`) + `tributos` (`trib.gIBSCBS`, REQ — `TributosIbscbsNFSe`). Os domínios externos (`cIndOp`/`cst`/`cClassTrib`) não são validados como regra dura."
+    },
+    "DestinatarioIbscbsNFSe": {
+      "type": "object",
+      "properties": {
+        "cnpj": {
+          "type": "string"
+        },
+        "cpf": {
+          "type": "string"
+        },
+        "nif": {
+          "type": "string"
+        },
+        "cNaoNIF": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2"
+          ],
+          "description": "Motivo de não ter NIF (estrangeiro): 0=não informado na origem; 1=dispensado; 2=não exigência."
+        },
+        "xNome": {
+          "type": "string"
+        },
+        "endereco": {
+          "$ref": "#/definitions/EnderecoNFSe",
+          "description": "Endereço do destinatário (`end`, `TCEndereco`) — reusa a máquina de endereço dos atores."
+        },
+        "fone": {
+          "type": "string",
+          "description": "Telefone (`[0-9]{6,20}`)."
+        },
+        "email": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "xNome"
+      ],
+      "additionalProperties": false,
+      "description": "Destinatário do serviço para o IBS/CBS (`IBSCBS.dest`, `TCRTCInfoDest`, `tiposComplexos_v1.01.xsd:2294`, `minOccurs=0`). Presente só quando o destinatário **não é** o próprio tomador/adquirente (`indDest=1`): identificação **exclusiva** por **um** de `cnpj`/`cpf`/`nif`/`cNaoNIF` (`choice` resolvido por presença) + `xNome` (REQ) + `endereco?` (`end`, `TCEndereco` — a **mesma** máquina de endereço dos atores) + `fone?`/`email?`. Difere do `PessoaNFSe`: **não tem** `CAEPF`/`IM` e o `xNome` é menor (1–150, não 1–300). Transcrição pura."
+    },
+    "ImovelIbscbsNFSe": {
+      "type": "object",
+      "properties": {
+        "inscImobFisc": {
+          "type": "string"
+        },
+        "cCIB": {
+          "type": "string",
+          "description": "Ramo `cCIB` do `choice`: código do Cadastro Imobiliário Brasileiro (CIB, 8 pos.)."
+        },
+        "endImovel": {
+          "$ref": "#/definitions/EnderecoObraEventoNFSe",
+          "description": "Ramo `end` do `choice`: endereço do imóvel (`TCEnderObraEvento`)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Bens imóveis do serviço para o IBS/CBS (`IBSCBS.imovel`, `TCRTCInfoImovel`, `tiposComplexos_v1.01.xsd:2360`, `minOccurs=0`). Operações sobre imóveis **exceto obras**: `inscImobFisc?` (inscrição imobiliária fiscal, 1–30) + um `choice` **exclusivo** — `cCIB` (Cadastro Imobiliário Brasileiro, 8 pos.) **xor** `endImovel` (endereço do imóvel, `TCEnderObraEvento` — a mesma estrutura de obra/evento). Transcrição pura."
+    },
+    "DocumentoReeRepResNFSe": {
+      "type": "object",
+      "properties": {
+        "dFeNacional": {
+          "$ref": "#/definitions/DocDFeNacionalReeRepResNFSe",
+          "description": "Ramo `dFeNacional`: documento fiscal eletrônico do repositório nacional."
+        },
+        "docFiscalOutro": {
+          "$ref": "#/definitions/DocFiscalOutroReeRepResNFSe",
+          "description": "Ramo `docFiscalOutro`: documento fiscal fora do repositório nacional."
+        },
+        "docOutro": {
+          "$ref": "#/definitions/DocOutroReeRepResNFSe",
+          "description": "Ramo `docOutro`: documento não fiscal."
+        },
+        "fornec": {
+          "$ref": "#/definitions/FornecReeRepResNFSe",
+          "description": "Fornecedor do documento referenciado (`fornec`), opcional."
+        },
+        "dtEmiDoc": {
+          "type": "string",
+          "description": "Data de emissão do documento (`AAAA-MM-DD`)."
+        },
+        "dtCompDoc": {
+          "type": "string",
+          "description": "Data de competência do documento (`AAAA-MM-DD`)."
+        },
+        "tpReeRepRes": {
+          "$ref": "#/definitions/TipoReeRepRes"
+        },
+        "xTpReeRepRes": {
+          "type": "string",
+          "description": "Descrição do reembolso/ressarcimento quando `tpReeRepRes=99`, 1–150."
+        },
+        "vlrReeRepRes": {
+          "type": "number",
+          "description": "Valor monetário (total ou parcial) não incluído na BC do ISS/IBS/CBS (R$, `TSDec15V2`)."
+        }
+      },
+      "required": [
+        "dtEmiDoc",
+        "dtCompDoc",
+        "tpReeRepRes",
+        "vlrReeRepRes"
+      ],
+      "additionalProperties": false,
+      "description": "Documento referenciado de reembolso/repasse/ressarcimento (`documentos`, `TCRTCListaDoc`, `tiposComplexos_v1.01.xsd:2433`) — item da lista de `gReeRepRes`. Abre com um `choice` **exclusivo** de referência — **exatamente um** de `dFeNacional` (`DocDFeNacionalReeRepResNFSe`) | `docFiscalOutro` (`DocFiscalOutroReeRepResNFSe`) | `docOutro` (`DocOutroReeRepResNFSe`) — seguido de `fornec?` (`FornecReeRepResNFSe`), `dtEmiDoc` (REQ), `dtCompDoc` (REQ, datas `AAAA-MM-DD`), `tpReeRepRes` (REQ), `xTpReeRepRes?` (descrição quando `tpReeRepRes=99`) e `vlrReeRepRes` (REQ, valor não incluído na BC). Transcrição pura."
+    },
+    "DocDFeNacionalReeRepResNFSe": {
+      "type": "object",
+      "properties": {
+        "tipoChaveDFe": {
+          "type": "string",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "9"
+          ],
+          "description": "Documento fiscal a que se refere a `chaveDFe`: 1=NFS-e; 2=NF-e; 3=CT-e; 9=Outro."
+        },
+        "xTipoChaveDFe": {
+          "type": "string",
+          "description": "Descrição da DF-e (preencher só quando `tipoChaveDFe=9`), 1–255."
+        },
+        "chaveDFe": {
+          "type": "string",
+          "description": "Chave do documento fiscal eletrônico do repositório nacional (1–50)."
+        }
+      },
+      "required": [
+        "tipoChaveDFe",
+        "chaveDFe"
+      ],
+      "additionalProperties": false,
+      "description": "Documento fiscal eletrônico do repositório nacional referenciado no reembolso/repasse/ressarcimento (`dFeNacional`, `TCRTCListaDocDFe`, `tiposComplexos_v1.01.xsd:2508`). Ramo `dFeNacional` do `choice` de referência do `DocumentoReeRepResNFSe`: tipo da chave + descrição (quando `tipoChaveDFe=9`) + a chave."
+    },
+    "DocFiscalOutroReeRepResNFSe": {
+      "type": "object",
+      "properties": {
+        "cMunDocFiscal": {
+          "type": "string",
+          "description": "Código do município emissor do documento fiscal (IBGE, `[0-9]{7}`)."
+        },
+        "nDocFiscal": {
+          "type": "string",
+          "description": "Número do documento fiscal (1–255)."
+        },
+        "xDocFiscal": {
+          "type": "string",
+          "description": "Descrição do documento fiscal (1–255)."
+        }
+      },
+      "required": [
+        "cMunDocFiscal",
+        "nDocFiscal",
+        "xDocFiscal"
+      ],
+      "additionalProperties": false,
+      "description": "Documento fiscal (eletrônico ou não) **fora** do repositório nacional (`docFiscalOutro`, `TCRTCListaDocFiscalOutro`, `tiposComplexos_v1.01.xsd:2535`). Ramo `docFiscalOutro` do `choice` de referência: município emissor (IBGE) + número + descrição."
+    },
+    "DocOutroReeRepResNFSe": {
+      "type": "object",
+      "properties": {
+        "nDoc": {
+          "type": "string",
+          "description": "Número do documento não fiscal (1–255)."
+        },
+        "xDoc": {
+          "type": "string",
+          "description": "Descrição do documento não fiscal (1–255)."
+        }
+      },
+      "required": [
+        "nDoc",
+        "xDoc"
+      ],
+      "additionalProperties": false,
+      "description": "Documento **não fiscal** referenciado no reembolso/repasse/ressarcimento (`docOutro`, `TCRTCListaDocOutro`, `tiposComplexos_v1.01.xsd:2561`). Ramo `docOutro` do `choice` de referência: número + descrição."
+    },
+    "FornecReeRepResNFSe": {
+      "type": "object",
+      "properties": {
+        "cnpj": {
+          "type": "string"
+        },
+        "cpf": {
+          "type": "string"
+        },
+        "nif": {
+          "type": "string"
+        },
+        "cNaoNIF": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "2"
+          ],
+          "description": "Motivo de não ter NIF (estrangeiro): 0=não informado na origem; 1=dispensado; 2=não exigência."
+        },
+        "xNome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "xNome"
+      ],
+      "additionalProperties": false,
+      "description": "Fornecedor do documento referenciado no reembolso/repasse/ressarcimento (`fornec`, `TCRTCListaDocFornec`, `tiposComplexos_v1.01.xsd:2580`, `minOccurs=0`). Identificação **exclusiva** por **um** de `cnpj`/`cpf`/`nif`/ `cNaoNIF` (`choice` por presença) + `xNome` (REQ, 1–150). Mais enxuto que o `PessoaNFSe` — **só** identificação e nome."
+    },
+    "TipoReeRepRes": {
+      "type": "string",
+      "enum": [
+        "01",
+        "02",
+        "03",
+        "04",
+        "99"
+      ],
+      "description": "Tipo de valor de reembolso/repasse/ressarcimento (`tpReeRepRes`, `TSRTCTpReeRepRes`): `01`=Repasse de remuneração por intermediação de imóveis; `02`=Repasse a fornecedor (turismo); `03`=Reembolso de produção externa (publicidade); `04`=Reembolso de mídia (publicidade); `99`=Outros."
+    },
+    "TributosIbscbsNFSe": {
+      "type": "object",
+      "properties": {
+        "cst": {
+          "type": "string",
+          "description": "Código de Situação Tributária do IBS/CBS (`[0-9]{3}`)."
+        },
+        "cClassTrib": {
+          "type": "string",
+          "description": "Código de Classificação Tributária do IBS/CBS (`[0-9]{6}`)."
+        },
+        "cCredPres": {
+          "type": "string",
+          "description": "Código e classificação do crédito presumido do IBS/CBS (`[0-9]{2}`), opcional."
+        },
+        "tribRegular": {
+          "$ref": "#/definitions/TribRegularIbscbsNFSe",
+          "description": "Tributação regular (`gTribRegular`), opcional."
+        },
+        "dif": {
+          "$ref": "#/definitions/DiferimentoIbscbsNFSe",
+          "description": "Diferimento (`gDif`), opcional."
+        }
+      },
+      "required": [
+        "cst",
+        "cClassTrib"
+      ],
+      "additionalProperties": false,
+      "description": "Situação e classificação tributária do IBS/CBS (`IBSCBS.valores.trib.gIBSCBS`, `TCRTCInfoTributosSitClas`, `tiposComplexos_v1.01.xsd:2625`). O contribuinte **informa** situação e classificação; **alíquota e valor voltam calculados na NFS-e** — o módulo **não calcula**."
+    },
+    "TribRegularIbscbsNFSe": {
+      "type": "object",
+      "properties": {
+        "cstReg": {
+          "type": "string",
+          "description": "Código de Situação Tributária do IBS/CBS de tributação regular (`[0-9]{3}`)."
+        },
+        "cClassTribReg": {
+          "type": "string",
+          "description": "Código de Classificação Tributária do IBS/CBS de tributação regular (`[0-9]{6}`)."
+        }
+      },
+      "required": [
+        "cstReg",
+        "cClassTribReg"
+      ],
+      "additionalProperties": false,
+      "description": "Tributação regular do IBS/CBS (`gTribRegular`, `TCRTCInfoTributosTribRegular`, `tiposComplexos_v1.01.xsd:2665`, `minOccurs=0`). A situação/classificação que **seria** aplicada na ausência de benefício: `cstReg` (CST regular) + `cClassTribReg` (classificação tributária regular), ambos REQ no grupo. Transcrição pura."
+    },
+    "DiferimentoIbscbsNFSe": {
+      "type": "object",
+      "properties": {
+        "pDifUF": {
+          "type": "number",
+          "description": "Percentual de diferimento do IBS estadual (`TSDec3V2`)."
+        },
+        "pDifMun": {
+          "type": "number",
+          "description": "Percentual de diferimento do IBS municipal (`TSDec3V2`)."
+        },
+        "pDifCBS": {
+          "type": "number",
+          "description": "Percentual de diferimento da CBS (`TSDec3V2`)."
+        }
+      },
+      "required": [
+        "pDifUF",
+        "pDifMun",
+        "pDifCBS"
+      ],
+      "additionalProperties": false,
+      "description": "Diferimento do IBS/CBS (`gDif`, `TCRTCInfoTributosDif`, `tiposComplexos_v1.01.xsd:2684`, `minOccurs=0`): percentuais de diferimento do IBS estadual (`pDifUF`), municipal (`pDifMun`) e da CBS (`pDifCBS`), todos REQ no grupo (`TSDec3V2`). O contribuinte **informa** os percentuais; o módulo **não os aplica**."
+    }
+  }
+}

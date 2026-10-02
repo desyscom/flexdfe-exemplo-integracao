@@ -70,7 +70,9 @@ test('o ciclo completo: cadastro, certificado, ativação, credencial, série 55
     tela = await c.get('/emitente');
     for (const passo of ['1. Cadastrar o emitente ✓', '2. Subir o certificado A1 ✓', '3. Ativar ✓', '4. Cunhar a credencial operacional ✓', '5. Provisionar séries ✓', '6. Webhook (opcional) ✓'])
       assert.ok(tela.html.includes(passo), `faltou "${passo}"`);
-    assert.match(tela.html, /<td>homologacao<\/td><td>55<\/td><td>1<\/td><td>managed<\/td>/);
+    // A série é por documento: a tabela diz o `tipoDocumento` e, ao lado, o `modelo` que a NF-e e a NFC-e têm.
+    assert.match(tela.html, /<td>homologacao<\/td><td>nfe<\/td><td>55<\/td><td>1<\/td><td>managed<\/td>/);
+    assert.match(tela.html, /<td>homologacao<\/td><td>nfce<\/td><td>65<\/td><td>1<\/td><td>managed<\/td>/);
     assert.match(tela.html, /a lista abaixo é a de <b>homologacao<\/b>/);
     assert.match(tela.html, /tunel\.exemplo\.com\/outro/);
     // A página lista as rotas que consumiu.
@@ -105,7 +107,7 @@ test('a série é por ambiente: o emitente promovido não leva a de homologaçã
     // A série 1 de produção é outra: nasce no ambiente atual e começa do 1, sem herdar o cursor de homologação.
     assert.match((await c.post('/emitente/serie', { modelo: '55', serie: '1' })).html, /Série 1 do modelo 55 provisionada/);
     tela = await c.get('/emitente');
-    assert.match(tela.html, /<td>producao<\/td><td>55<\/td><td>1<\/td><td>managed<\/td><td>1<\/td>/);
+    assert.match(tela.html, /<td>producao<\/td><td>nfe<\/td><td>55<\/td><td>1<\/td><td>managed<\/td><td>1<\/td>/);
     const producao = await c.post('/nova-nota/emitir', pedido55(c));
     assert.match(producao.html, /completed \/ authorized, número 1/);
     assert.deepEqual(c.api.series.map((s) => `${s.ambiente} ${s.modelo}/${s.serie} próximo ${s.nextNumber}`), ['homologacao 55/1 próximo 2', 'homologacao 65/1 próximo 1', 'producao 55/1 próximo 2']);
@@ -123,6 +125,23 @@ test('cadastro com CNPJ repetido mostra o problem+json com o type', async () => 
     assert.match(r.html, /Cadastro recusado: HTTP 409/);
     assert.match(r.html, /type = emitente-cnpj-already-exists/);
     assert.match(r.html, /Envelope application\/problem\+json/);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('CNPJ alfanumérico: o cadastro mantém as letras, em maiúscula, e só a pontuação sai', async () => {
+  const c = await subir();
+  try {
+    // O rótulo do campo não promete só dígitos.
+    const formulario = await c.get('/emitente');
+    assert.match(formulario.texto, /CNPJ \(14 caracteres, as 12 primeiras podem ser letras\)/);
+
+    const r = await c.post('/emitente/cadastrar', { ...EMITENTE_VALIDO, cnpj: '12.abc.345/0001-88' });
+    assert.match(r.html, /Emitente cadastrado \(rascunho\)/);
+    const criacao = c.api.requisicoes.find((q) => q.metodo === 'POST' && q.caminho === '/v1/emitentes')!;
+    assert.equal((criacao.corpo as { cnpj: string }).cnpj, '12ABC345000188');
+    assert.match((await c.get('/emitente')).html, /CNPJ 12ABC345000188/);
   } finally {
     await c.encerrar();
   }

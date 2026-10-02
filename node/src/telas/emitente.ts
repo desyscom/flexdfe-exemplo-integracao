@@ -49,7 +49,8 @@ export const acoesEmitente: Record<string, Rota> = {
 async function cadastrar({ form, config, banco, cliente }: Contexto): Promise<Resultado> {
   const campo = (nome: string) => form.get(nome)?.trim() ?? '';
   const dados: CriacaoEmitente = {
-    cnpj: campo('cnpj').replace(/\D/g, ''),
+    // CNPJ alfanumérico: só a pontuação sai. Tirar tudo que não é dígito apagaria as letras.
+    cnpj: campo('cnpj').replace(/[^0-9A-Za-z]/g, '').toUpperCase(),
     razao_social: campo('razao_social'),
     nome_fantasia: campo('nome_fantasia') || null,
     inscricao_estadual: campo('inscricao_estadual') || 'ISENTO',
@@ -298,7 +299,7 @@ ${passo(4, 'Cunhar a credencial operacional', 'POST /v1/credenciais  { "descrica
 ${passo(5, 'Provisionar séries', 'POST /v1/series  { "modelo", "serie", "mode": "managed" }', 'operacional', series.length > 0, !operacional
   ? bloqueado('cunhe a credencial operacional; a de gestão recebe 403 emitente-scope-required')
   : html`<p>A série é <b>por ambiente</b>: homologação e produção numeram separado, e a promoção não cria a de produção: convém provisioná-la antes de promover o emitente. Sem <code>ambiente</code> no corpo, a série nasce no ambiente atual do emitente${ambienteDasSeries ? html`, e a lista abaixo é a de <b>${ambienteDasSeries}</b>` : vazio}.</p>
-${series.length ? html`<table><tr><th>Ambiente</th><th>Modelo</th><th>Série</th><th>Modo</th><th>Próximo número</th><th>Ativa</th></tr>${series.map((s) => html`<tr><td>${s.ambiente}</td><td>${s.modelo}</td><td>${s.serie}</td><td>${s.mode}</td><td>${s.nextNumber ?? '-'}</td><td>${s.active ? 'sim' : 'não'}</td></tr>`)}</table>` : bruto('<p>Nenhuma série ainda. Sem série no ambiente atual, a emissão responde 404 series-not-provisioned.</p>')}
+${series.length ? html`<table><tr><th>Ambiente</th><th>Documento</th><th>Modelo</th><th>Série</th><th>Modo</th><th>Próximo número</th><th>Ativa</th></tr>${series.map((s) => html`<tr><td>${s.ambiente}</td><td>${s.tipoDocumento}</td><td>${s.modelo ?? '-'}</td><td>${s.serie}</td><td>${s.mode}</td><td>${s.nextNumber ?? '-'}</td><td>${s.active ? 'sim' : 'não'}</td></tr>`)}</table>` : bruto('<p>Nenhuma série ainda. Sem série no ambiente atual, a emissão responde 404 series-not-provisioned.</p>')}
 <form method="post" action="/emitente/serie"><label>Modelo <select name="modelo"><option value="55">55 · NF-e</option><option value="65">65 · NFC-e</option></select></label><label>Série <input name="serie" value="1" size="4"></label><button>Provisionar (managed)</button></form>`)}
 
 ${passo(6, 'Webhook (opcional)', 'PUT /v1/emitentes/{id}/webhook  { "url", "ativo": true }', 'operacional', Boolean(emitente?.webhook), !operacional
@@ -333,7 +334,7 @@ function formularioCadastro(): Html {
   return html`<h3>Ou cadastrar um emitente novo</h3>
 <p>Só os campos obrigatórios do <span class="rota">POST /v1/emitentes</span>, mais fantasia e telefone. O ambiente vai fixo em <b>homologacao</b>.</p>
 <form method="post" action="/emitente/cadastrar"><div class="grid">
-${campo('cnpj', 'CNPJ (14 dígitos)', 'required')}
+${campo('cnpj', 'CNPJ (14 caracteres, as 12 primeiras podem ser letras)', 'required')}
 ${campo('razao_social', 'Razão social', 'required')}
 ${campo('nome_fantasia', 'Nome fantasia')}
 ${campo('inscricao_estadual', 'Inscrição estadual (ou ISENTO)', 'value="ISENTO"')}

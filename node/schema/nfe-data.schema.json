@@ -1,5 +1,5 @@
 {
-  "$comment": "Copiado do flex-dfe na tag v0.3.1 (apps/api/openapi/nfe-data.schema.json) em 12/09/2026. Nao edite: substitua pela copia da tag seguinte quando o contrato mudar.",
+  "$comment": "Copiado do flex-dfe na tag v0.5.0 (apps/api/openapi/nfe-data.schema.json) em 02/10/2026. Nao edite: substitua pela copia da tag seguinte quando o contrato mudar.",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "x-proveniencia": {
     "gerado": "Artefato gerado automaticamente — NÃO EDITAR À MÃO.",
@@ -1213,6 +1213,22 @@
         "credSN": {
           "$ref": "#/definitions/IcmsCredSN",
           "description": "Crédito de ICMS do Simples Nacional (CSOSN 101/201, e 900 na 4b.2). Transcrito cego, não agrega total."
+        },
+        "mono": {
+          "$ref": "#/definitions/IcmsMono",
+          "description": "ICMS monofásico próprio sobre combustíveis (CST 02 e 15). O emitente do Simples Nacional e o MEI também informam os CST monofásicos 02, 15, 53 e 61 no campo `cst`, e não um CSOSN (regra N12-20)."
+        },
+        "monoReten": {
+          "$ref": "#/definitions/IcmsMonoReten",
+          "description": "ICMS monofásico sujeito a retenção (CST 15). Soma ao valor da nota."
+        },
+        "monoDif": {
+          "$ref": "#/definitions/IcmsMonoDif",
+          "description": "ICMS monofásico com recolhimento diferido (CST 53)."
+        },
+        "monoRet": {
+          "$ref": "#/definitions/IcmsMonoRet",
+          "description": "ICMS monofásico cobrado anteriormente (CST 61)."
         }
       },
       "required": [
@@ -1465,6 +1481,118 @@
       ],
       "additionalProperties": false,
       "description": "Bloco **`credSN`** do crédito de ICMS do **Simples Nacional** (art. 23 da LC 123) — `pCredSN` (alíquota aplicável de cálculo do crédito) + `vCredICMSSN` (valor do crédito aproveitável pelo comprador), **transcritos cegos**. Único conceito novo do eixo CSOSN: aparece nos CSOSN 101/201 (obrigatório) e 900 (opcional), **sem análogo** em nenhum CST."
+    },
+    "IcmsMono": {
+      "type": "object",
+      "properties": {
+        "qBCMono": {
+          "type": "number",
+          "description": "Quantidade tributada (N37a), na unidade de medida da legislação do produto, com até 4 casas. Opcional no XSD, mas a SEFAZ rejeita a NF-e sem ela nos CST 02, 15 e 53 (regra N37a-10)."
+        },
+        "adRemICMS": {
+          "type": "number",
+          "description": "Alíquota ad rem do ICMS (N38), em reais por unidade, com 2 a 4 casas."
+        },
+        "vICMSMono": {
+          "type": "number",
+          "description": "Valor do ICMS monofásico próprio (N39). Agrega o total `vICMSMono` e não soma ao valor da nota."
+        }
+      },
+      "required": [
+        "adRemICMS",
+        "vICMSMono"
+      ],
+      "additionalProperties": false,
+      "description": "Bloco **`mono`** do ICMS monofásico **próprio** sobre combustíveis (CST 02 e 15, NT 2023.001 §3.2 e §3.3). O valor é a quantidade tributada vezes a alíquota ad rem: `vICMSMono = qBCMono × adRemICMS`, arredondado a duas casas (regra N39-10)."
+    },
+    "IcmsMonoReten": {
+      "type": "object",
+      "properties": {
+        "qBCMonoReten": {
+          "type": "number",
+          "description": "Quantidade tributada sujeita a retenção (N39a), com até 4 casas. Opcional no XSD, mas a SEFAZ rejeita a NF-e sem ela (regra N39a-10)."
+        },
+        "adRemICMSReten": {
+          "type": "number",
+          "description": "Alíquota ad rem do ICMS com retenção (N40), em reais por unidade, com 2 a 4 casas."
+        },
+        "vICMSMonoReten": {
+          "type": "number",
+          "description": "Valor do ICMS monofásico com retenção (N41)."
+        },
+        "pRedAdRem": {
+          "type": "number",
+          "description": "Percentual de redução da alíquota ad rem (N47). Informado junto com o `motRedAdRem`; com ele, as alíquotas `adRemICMS` e `adRemICMSReten` informadas já são as reduzidas."
+        },
+        "motRedAdRem": {
+          "type": "string",
+          "enum": [
+            "1",
+            "9"
+          ],
+          "description": "Motivo da redução da alíquota ad rem (N48): `1` transporte coletivo de passageiros, `9` outros."
+        }
+      },
+      "required": [
+        "adRemICMSReten",
+        "vICMSMonoReten"
+      ],
+      "additionalProperties": false,
+      "description": "Bloco **`monoReten`** do ICMS monofásico **sujeito a retenção** (CST 15, NT 2023.001 §3.3): o imposto do biocombustível misturado que a refinaria retém. `vICMSMonoReten = qBCMonoReten × adRemICMSReten`; nos códigos ANP de biodiesel, gás e Diesel B listados nas regras N41-10 e N41-20, a conta leva o fator 0,3333. É o único valor do ICMS monofásico que **soma ao valor da nota** (regra W16-10)."
+    },
+    "IcmsMonoDif": {
+      "type": "object",
+      "properties": {
+        "qBCMono": {
+          "type": "number",
+          "description": "Quantidade tributada (N37a), com até 4 casas. A SEFAZ rejeita a NF-e sem ela (regra N37a-10)."
+        },
+        "adRemICMS": {
+          "type": "number",
+          "description": "Alíquota ad rem do ICMS (N38), em reais por unidade, com 2 a 4 casas."
+        },
+        "vICMSMonoOp": {
+          "type": "number",
+          "description": "Valor do ICMS da operação (N41a), como se não houvesse o diferimento."
+        },
+        "pDif": {
+          "type": "number",
+          "description": "Percentual do diferimento (N42). No diferimento total, `100`."
+        },
+        "vICMSMonoDif": {
+          "type": "number",
+          "description": "Valor do ICMS diferido (N43)."
+        },
+        "vICMSMono": {
+          "type": "number",
+          "description": "Valor do ICMS próprio devido (N39): o da operação menos o diferido. Agrega o total `vICMSMono`."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Bloco **`monoDif`** do ICMS monofásico **com recolhimento diferido** (CST 53, NT 2023.001 §3.4). Todos os campos são opcionais no XSD. A conta: `vICMSMonoOp = qBCMono × adRemICMS`, `vICMSMonoDif = vICMSMonoOp × pDif / 100` e `vICMSMono = vICMSMonoOp − vICMSMonoDif`. Os campos `qBCMonoDif` e `adRemICMSDif` do XSD não entram: a NT os revogou na versão 1.20."
+    },
+    "IcmsMonoRet": {
+      "type": "object",
+      "properties": {
+        "qBCMonoRet": {
+          "type": "number",
+          "description": "Quantidade tributada retida anteriormente (N43a), com até 4 casas. Opcional no XSD, mas a SEFAZ rejeita a NF-e e a NFC-e sem ela (regra N43a-10)."
+        },
+        "adRemICMSRet": {
+          "type": "number",
+          "description": "Alíquota ad rem do ICMS retido anteriormente (N44), em reais por unidade, com 2 a 4 casas."
+        },
+        "vICMSMonoRet": {
+          "type": "number",
+          "description": "Valor do ICMS retido anteriormente (N45)."
+        }
+      },
+      "required": [
+        "adRemICMSRet",
+        "vICMSMonoRet"
+      ],
+      "additionalProperties": false,
+      "description": "Bloco **`monoRet`** do ICMS monofásico **cobrado anteriormente** (CST 61, NT 2023.001 §3.5), o do revendedor. `vICMSMonoRet = qBCMonoRet × adRemICMSRet` (regra N45-10). Não soma ao valor da nota."
     },
     "IpiClassificacao": {
       "type": "object",

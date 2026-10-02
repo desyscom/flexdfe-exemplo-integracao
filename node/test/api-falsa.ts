@@ -1,5 +1,5 @@
 // Uma API do Flex DFe de mentira, em processo, para os testes dirigirem a tela sem credencial
-// nem SEFAZ. Responde os contratos do OpenAPI publicado (tag v0.3.1) só no que este exemplo
+// nem SEFAZ. Responde os contratos do OpenAPI publicado (tag v0.5.0) só no que este exemplo
 // consome: os dois envelopes de erro, os escopos, o secret que aparece uma vez, as operações
 // sobre a nota emitida e o 429 da borda.
 //
@@ -59,13 +59,24 @@ type RespostaFalsa = { status: number; tipo: string; corpo: unknown; texto?: str
 
 const PATTERN_TEXTO_SEFAZ = /^(?:[!-ÿ][ -ÿ]*[!-ÿ]|[!-ÿ])$/;
 
+/** O documento que uma série numera: `dps` é a declaração da NFS-e. */
+export type TipoDocumento = 'nfe' | 'nfce' | 'dps';
+
+const MODELO_DO_TIPO: Record<TipoDocumento, 55 | 65 | undefined> = { nfe: 55, nfce: 65, dps: undefined };
+
+/** CNPJ alfanumérico: as 12 primeiras posições podem ser letras, as 2 últimas são dígitos. */
+const PATTERN_CNPJ = /^[A-Za-z0-9]{12}[0-9]{2}$/;
+
 export class ApiFalsa {
   readonly servidor: Server;
   readonly requisicoes: Requisicao[] = [];
   readonly credenciais: Cred[] = [{ clientId: 'gestao', secret: 'segredo-gestao', escopo: 'integrador' }];
   readonly emitentes = new Map<string, Record<string, unknown>>();
-  /** A série é por ambiente: a chave é emitente + ambiente + modelo + série. */
-  readonly series: { emitenteId: string; ambiente: string; modelo: number; serie: number; nextNumber: number }[] = [];
+  /**
+   * A série é por ambiente e por documento: a chave é emitente + ambiente + `tipoDocumento` + série. O `modelo`
+   * só existe na NF-e (55) e na NFC-e (65); a DPS não tem.
+   */
+  readonly series: { emitenteId: string; ambiente: string; tipoDocumento: TipoDocumento; modelo?: 55 | 65; serie: number; nextNumber: number }[] = [];
   readonly webhooks = new Map<string, { url: string; ativo: boolean; secret: string }>();
   /** A senha que "abre" o .pfx de teste, e o conteúdo cujo titular "bate" com o CNPJ. */
   senhaCerta = 'senha-certa';
@@ -217,7 +228,7 @@ export class ApiFalsa {
       if (cred.escopo === 'integrador')
         return json(200, { escopo: 'integrador', integradorId: 'int-1', emitentes: [...this.emitentes.values()].map((e) => ({ id: e.id, cnpj: e.cnpj, razao_social: e.razao_social })) });
       const e = this.emitentes.get(cred.emitenteId!)!;
-      return json(200, { escopo: 'emitente', emitente: { id: e.id, cnpj: e.cnpj, razao_social: e.razao_social, ambiente: e.ambiente } });
+      return json(200, { escopo: 'emitente', emitente: { id: e.id, cnpj: e.cnpj, razao_social: e.razao_social, ambiente: e.ambiente, tipos_documento: this.tiposDocumento(e) } });
     }
 
     if (partes[1] === 'emitentes') {
@@ -226,10 +237,15 @@ export class ApiFalsa {
         const c = corpo as Record<string, unknown>;
         for (const campo of ['cnpj', 'razao_social', 'inscricao_estadual', 'crt', 'ambiente', 'logradouro', 'numero', 'bairro', 'cod_municipio', 'municipio', 'uf', 'cep'])
           if (c[campo] === undefined || c[campo] === '') return problema(422, 'invalid-request-body', `campo ${campo} obrigatório`);
-        if ([...this.emitentes.values()].some((e) => e.cnpj === c.cnpj)) return problema(409, 'emitente-cnpj-already-exists');
-        const e = { id: randomUUID(), ...c, nome_fantasia: c.nome_fantasia ?? null, ativo: false, modelos: [], certificado: null, webhook: null, contingencia: [], suspenso_em: null, suspensao_motivo: null };
+        if (!PATTERN_CNPJ.test(String(c.cnpj))) return problema(422, 'invalid-request-body', 'cnpj deve ter 14 caracteres (12 alfanuméricos + 2 dígitos), sem máscara');
+        // A minúscula é aceita e gravada em maiúscula.
+        const cnpj = String(c.cnpj).toUpperCase();
+        if ([...this.emitentes.values()].some((e) => e.cnpj === cnpj)) return problema(409, 'emitente-cnpj-already-exists');
+        const im = inscricaoMunicipal(c.inscricao_municipal);
+        if (im === 'longa') return problema(422, 'invalid-request-body', 'inscricao_municipal deve ter até 15 letras e dígitos');
+        const e = { id: randomUUID(), ...c, cnpj, inscricao_municipal: im, nome_fantasia: c.nome_fantasia ?? null, ativo: false, certificado: null, webhook: null, contingencia: [], suspenso_em: null, suspensao_motivo: null };
         this.emitentes.set(e.id, e);
-        return json(201, e);
+        return json(201, this.comWebhook(e));
       }
       const e = this.emitentes.get(partes[2]);
       if (!e) return problema(404, 'emitente-not-found');
@@ -238,8 +254,13 @@ export class ApiFalsa {
       if (metodo === 'GET' && !sub) return json(200, this.comWebhook(e));
       if (metodo === 'PATCH' && !sub) {
         if (cred.escopo !== 'integrador') return problema(403, 'integrador-scope-required');
-        const c = corpo as Record<string, unknown>;
+        const c = { ...(corpo as Record<string, unknown>) };
         if (c.ativo === true && !e.certificado) return problema(409, 'certificate-required-to-activate');
+        if ('inscricao_municipal' in c) {
+          const im = inscricaoMunicipal(c.inscricao_municipal);
+          if (im === 'longa') return problema(422, 'invalid-request-body', 'inscricao_municipal deve ter até 15 letras e dígitos');
+          c.inscricao_municipal = im;
+        }
         Object.assign(e, c);
         return json(200, this.comWebhook(e));
       }
@@ -288,15 +309,24 @@ export class ApiFalsa {
       const atual = String(this.emitentes.get(cred.emitenteId!)!.ambiente);
       if (metodo === 'GET') {
         const doAmbiente = this.series.filter((s) => s.emitenteId === cred.emitenteId && s.ambiente === atual);
-        return json(200, { ambiente: atual, series: doAmbiente.map((s) => ({ ambiente: s.ambiente, modelo: s.modelo, serie: s.serie, mode: 'managed', active: true, nextNumber: s.nextNumber })) });
+        return json(200, { ambiente: atual, series: doAmbiente.map((s) => ({ ...representacaoSerie(s), mode: 'managed', active: true, nextNumber: s.nextNumber })) });
       }
       if (metodo === 'POST') {
-        const c = corpo as { modelo?: number; serie?: number; mode?: string; nextNumber?: number };
-        if (![55, 65].includes(c.modelo!) || !Number.isInteger(c.serie) || !['managed', 'external'].includes(c.mode!)) return problema(422, 'invalid-request-body');
-        if (this.series.some((s) => s.emitenteId === cred.emitenteId && s.ambiente === atual && s.modelo === c.modelo && s.serie === c.serie)) return problema(409, 'series-already-exists');
-        const s = { emitenteId: cred.emitenteId!, ambiente: atual, modelo: c.modelo!, serie: c.serie!, nextNumber: c.nextNumber ?? 1 };
+        const c = corpo as { modelo?: number; tipoDocumento?: string; serie?: number; mode?: string; nextNumber?: number };
+        if (!Number.isInteger(c.serie) || !['managed', 'external'].includes(c.mode!)) return problema(422, 'invalid-request-body');
+        // O documento vem pelo `modelo` (55, 65) ou pelo `tipoDocumento`; a DPS só se pede pelo segundo, e os dois em desacordo são 422.
+        const doModelo = c.modelo === undefined ? undefined : c.modelo === 55 ? 'nfe' : c.modelo === 65 ? 'nfce' : null;
+        const doTipo = c.tipoDocumento === undefined ? undefined : (['nfe', 'nfce', 'dps'] as const).find((t) => t === c.tipoDocumento) ?? null;
+        if (doModelo === null || doTipo === null || (doModelo === undefined && doTipo === undefined)) return problema(422, 'invalid-request-body', 'informe o modelo (55 ou 65) ou o tipoDocumento (nfe, nfce ou dps)');
+        if (doModelo && doTipo && doModelo !== doTipo) return problema(422, 'invalid-request-body', 'modelo e tipoDocumento em desacordo');
+        const tipoDocumento = (doTipo ?? doModelo)!;
+        // Cada documento tem a sua faixa de série, conferida na provisão: 0–999 na NF-e e na NFC-e, 1–49999 na DPS.
+        const [minimo, maximo] = tipoDocumento === 'dps' ? [1, 49999] : [0, 999];
+        if (c.serie! < minimo || c.serie! > maximo) return problema(422, 'invalid-request-body', `serie deve ser um inteiro entre ${minimo} e ${maximo} para ${tipoDocumento}`);
+        if (this.series.some((s) => s.emitenteId === cred.emitenteId && s.ambiente === atual && s.tipoDocumento === tipoDocumento && s.serie === c.serie)) return problema(409, 'series-already-exists', `série ${tipoDocumento} serie=${c.serie} já provisionada no ambiente ${atual}`);
+        const s = { emitenteId: cred.emitenteId!, ambiente: atual, tipoDocumento, modelo: MODELO_DO_TIPO[tipoDocumento], serie: c.serie!, nextNumber: c.nextNumber ?? 1 };
         this.series.push(s);
-        return json(201, { ambiente: s.ambiente, modelo: s.modelo, serie: s.serie, mode: c.mode, active: true, nextNumber: s.nextNumber });
+        return json(201, { ...representacaoSerie(s), mode: c.mode, active: true, nextNumber: s.nextNumber });
       }
     }
 
@@ -364,12 +394,7 @@ export class ApiFalsa {
         return json(202, aceite(novo));
       }
 
-      if (metodo === 'GET' && partes[2] === 'events') {
-        const since = Number(query.get('since') ?? 0);
-        const limit = Math.min(Number(query.get('limit') ?? 100), 1000);
-        const events = this.feed.filter((e) => e.seq > since).slice(0, limit);
-        return json(200, { events, nextCursor: events.length ? events[events.length - 1].seq : since });
-      }
+      if (metodo === 'GET' && partes[2] === 'events') return json(200, this.lerFeed('nfe', query));
 
       const comando = this.comandos.get(partes[2]);
       if (!comando || comando.emitenteId !== cred.emitenteId) return problema(404, 'command-not-found', `comando ${partes[2]} não encontrado`);
@@ -485,9 +510,29 @@ export class ApiFalsa {
     return o;
   }
 
+  /**
+   * O feed da família: `GET /v1/nfe/events` entrega só `nfe.*`, e `GET /v1/nfse/events`, só `nfse.*`. As duas
+   * dividem a numeração do `seq`, então cada leitura enxerga buracos que são eventos da outra.
+   */
+  private lerFeed(familia: 'nfe' | 'nfse', query: URLSearchParams) {
+    const since = Number(query.get('since') ?? 0);
+    const limit = Math.min(Number(query.get('limit') ?? 100), 1000);
+    const events = this.feed.filter((e) => e.seq > since && e.type.startsWith(`${familia}.`)).slice(0, limit);
+    return { events, nextCursor: events.length ? events[events.length - 1].seq : since };
+  }
+
+  /** Os documentos habilitados são derivados das séries ativas do ambiente atual: não são um campo editável. */
+  private tiposDocumento(e: Record<string, unknown>): TipoDocumento[] {
+    const doAmbiente = this.series.filter((s) => s.emitenteId === e.id && s.ambiente === e.ambiente);
+    return (['nfe', 'nfce', 'dps'] as const).filter((t) => doAmbiente.some((s) => s.tipoDocumento === t));
+  }
+
+  /** A representação do emitente: os `modelos` e os `tipos_documento` saem das séries, e o webhook, do cadastro dele. */
   private comWebhook(e: Record<string, unknown>) {
     const w = this.webhooks.get(e.id as string);
-    return { ...e, webhook: w ? { url: w.url, ativo: w.ativo } : null };
+    const tipos = this.tiposDocumento(e);
+    const modelos = tipos.map((t) => MODELO_DO_TIPO[t]).filter((m) => m !== undefined);
+    return { ...e, modelos, tipos_documento: tipos, webhook: w ? { url: w.url, ativo: w.ativo } : null };
   }
 
   private autenticar(auth: string | undefined): Cred | null {
@@ -498,6 +543,24 @@ export class ApiFalsa {
 }
 
 const json = (status: number, corpo: unknown): RespostaFalsa => ({ status, tipo: 'application/json', corpo });
+
+/** A série como a API a devolve: o `tipoDocumento` sempre, e o `modelo` só na NF-e e na NFC-e. */
+const representacaoSerie = (s: { ambiente: string; tipoDocumento: TipoDocumento; modelo?: 55 | 65; serie: number }) => ({
+  ambiente: s.ambiente,
+  tipoDocumento: s.tipoDocumento,
+  ...(s.modelo === undefined ? {} : { modelo: s.modelo }),
+  serie: s.serie,
+});
+
+/**
+ * A inscrição municipal como a API a grava: sem espaço nem pontuação, e `null` quando não sobra letra nem dígito.
+ * Acima de 15 letras e dígitos, é 422.
+ */
+function inscricaoMunicipal(valor: unknown): string | null | 'longa' {
+  const limpa = typeof valor === 'string' ? valor.replace(/[^A-Za-z0-9]/g, '') : '';
+  if (limpa.length > 15) return 'longa';
+  return limpa === '' ? null : limpa;
+}
 
 const ehTerminal = (status: string): boolean => ['completed', 'failed', 'blocked'].includes(status);
 
