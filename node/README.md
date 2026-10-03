@@ -1,8 +1,10 @@
 # Exemplo em Node
 
-Uma tela local, sem framework, que percorre o ciclo inteiro do emitente na API do Flex DFe: cadastro, certificado, série, emissão de NF-e e NFC-e, feed, webhook, XML, DANFE, consulta, cancelamento, carta de correção com o DACCE e inutilização. TypeScript executado direto pelo Node, sem build; SQLite pelo módulo nativo, sem nada para compilar.
+Uma tela local, sem framework, que percorre o ciclo inteiro do emitente na API do Flex DFe: cadastro, certificado, série, emissão de NF-e e NFC-e e de NFS-e Padrão Nacional, feed, webhook, XML, DANFE e DANFSe, consulta, cancelamento, substituição, carta de correção com o DACCE e inutilização. TypeScript executado direto pelo Node, sem build; SQLite pelo módulo nativo, sem nada para compilar.
 
 > Testado contra a API na tag **v0.3.1**. Se a Referência em `/docs` mudou depois disso, o que está aqui pode ter envelhecido. Não há CI nem smoke automatizado: a tag é a única defesa, junto com os testes, que só pegam a divergência depois que a API falsa for atualizada a partir da Referência.
+>
+> **O fluxo da NFS-e ainda não foi rodado contra a API de verdade.** O código, a API falsa e a cópia dos schemas seguem o contrato da **v0.5.0**, a primeira com a família `/v1/nfse`, mas a tag acima só muda depois de uma rodada real em homologação. Até lá, trate as telas Nova NFS-e e NFS-e como leitura do contrato, não como prova de que a SEFIN as aceita.
 
 ## Pré-requisitos
 
@@ -53,12 +55,14 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
    | 2 | Subir o certificado (base64 num JSON, com a senha) | `PUT /v1/emitentes/{id}/certificado` | gestão |
    | 3 | Ativar (exige certificado) | `PATCH /v1/emitentes/{id}` | gestão |
    | 4 | Cunhar a credencial **operacional** e guardá-la | `POST /v1/credenciais` | gestão |
-   | 5 | Provisionar séries gerenciadas, 55 e 65, no ambiente atual | `POST /v1/series` | operacional |
+   | 5 | Provisionar séries gerenciadas, 55, 65 e DPS, no ambiente atual | `POST /v1/series` | operacional |
    | 6 | Webhook (opcional; HTTPS pública) | `PUT /v1/emitentes/{id}/webhook` | operacional |
+
+   A tela tem ainda uma seção **NFS-e Padrão Nacional**, com o que ela pede a mais, na ordem da API: a **inscrição municipal** (no cadastro, ou depois pelo `PATCH`), a **consulta de convênio** do município (entre o certificado e a ativação, e opcional) e a **série de DPS**, que é o próprio passo 5, escolhendo `dps` em Documento. Veja *A NFS-e* abaixo.
 
    A credencial de gestão **não emite**. A que emite é a operacional, que o passo 4 cunha a partir dela e guarda no banco local. Você só configura uma.
 
-   **A série é por ambiente.** Homologação e produção numeram separado: a série 1 de homologação e a de produção são duas, cada uma com o seu próximo número. Sem `ambiente` no corpo, o passo 5 provisiona no ambiente atual do emitente, que aqui é homologação. A promoção não cria a série de produção, e sem ela a primeira nota de produção volta `404 series-not-provisioned`: convém provisioná-la antes de promover. O guia *Séries e numeração* da [Referência](https://flexdfe.com.br/docs) mostra como.
+   **A série é por ambiente e por documento.** A série 1 de NF-e e a série 1 de DPS (a declaração da NFS-e) são duas, cada uma com o seu próximo número. A NF-e e a NFC-e se pedem pelo `modelo`, na faixa de 0 a 999; a DPS não tem modelo, se pede só pelo `tipoDocumento`, e a faixa dela é de 1 a 49999. Homologação e produção numeram separado: a série 1 de homologação e a de produção são duas, cada uma com o seu próximo número. Sem `ambiente` no corpo, o passo 5 provisiona no ambiente atual do emitente, que aqui é homologação. A promoção não cria a série de produção, e sem ela a primeira nota de produção volta `404 series-not-provisioned`: convém provisioná-la antes de promover. O guia *Séries e numeração* da [Referência](https://flexdfe.com.br/docs) mostra como.
 
    **Atalho, quando o emitente já existe na plataforma.** Os passos de 1 a 4 são o onboarding pela API, e existem porque um integrador precisa fazê-lo. Se o emitente já foi cadastrado no painel — com certificado, ativo, e com uma credencial **operacional** cunhada lá —, informe essa credencial no atalho do passo 1: a aplicação chama `GET /v1/contexto` para descobrir de quem ela é e `GET /v1/emitentes/{id}` para trazer a ficha, guarda as duas coisas no banco local e vai direto para a série. Duas leituras, nenhuma escrita, e nada é criado na plataforma. É o que um ERP faz de verdade quando o cliente entrega uma credencial pronta: a integração nunca cadastra ninguém, só se apresenta.
 
@@ -72,7 +76,7 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
 
 4. **Nova nota** escolhe modelo 55 ou 65, destinatário (opcional no 65), itens e pagamento. A tela confere a soma dos pagamentos contra o total dos itens, monta o `documento`, gera a `Idempotency-Key`, **grava a nota antes de chamar** e só então faz `POST /v1/nfe?wait=8000`. Desfecho dentro do `wait` é gravado; estouro deixa a nota "processando".
 
-5. **Eventos** puxa `GET /v1/nfe/events` a partir do cursor guardado, aplica cada evento (idempotente por `seq`, tipo desconhecido é gravado e ignorado) e grava o cursor **por último**. É o feed que fecha a emissão, o cancelamento, a carta e a inutilização, cada um pelo `type` do evento. O histórico bruto mostra a origem de cada evento, `feed` ou `webhook`, e o efeito que teve.
+5. **Eventos** puxa `GET /v1/nfe/events` a partir do cursor guardado, aplica cada evento (idempotente por `seq`, tipo desconhecido é gravado e ignorado) e grava o cursor **por último**. É o feed que fecha a emissão, o cancelamento, a carta e a inutilização, cada um pelo `type` do evento. O histórico bruto mostra a origem de cada evento, `feed` ou `webhook`, e o efeito que teve. A NFS-e tem o feed dela (`GET /v1/nfse/events`) e o cursor dela: veja *A NFS-e*.
 
 6. **Notas** lista com o status local e diz quem o pôs ali: a resposta da emissão ("do wait"), o feed ou o webhook. Cada linha oferece só o que a situação permite, e o detalhe da nota tem os formulários:
    - **XML** só na autorizada; **DANFE** na autorizada e na cancelada.
@@ -97,9 +101,35 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
 | Nova nota | `GET /v1/emitentes/{id}`, `POST /v1/nfe?wait=8000` (com `Idempotency-Key`) | operacional |
 | Notas | `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/xml`, `GET /v1/nfe/{id}/danfe`, `POST /v1/nfe/{id}/consulta`, `POST /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cancelamento`, `POST /v1/nfe/{id}/cce`, `GET /v1/nfe/{id}/cce`, `GET /v1/nfe/{id}/cce/{cartaId}/dacce` | operacional |
 | Inutilização | `POST /v1/inutilizacoes?wait=8000` (com `Idempotency-Key`) | operacional |
-| Eventos | `GET /v1/nfe/events`, `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cce` | operacional |
+| Emitente, seção NFS-e | `PATCH /v1/emitentes/{id}` (a inscrição municipal), `POST /v1/emitentes/{id}/consultas-convenio` | gestão |
+| Nova NFS-e | `GET /v1/emitentes/{id}`, `POST /v1/nfse?wait=8000` (com `Idempotency-Key`) | operacional |
+| NFS-e | `POST /v1/nfse?wait=8000` (reenviar e substituir), `GET /v1/nfse/{id}`, `GET /v1/nfse/{id}/xml`, `GET /v1/nfse/{id}/danfse`, `POST /v1/nfse/{id}/consulta`, `POST /v1/nfse/{id}/cancelamento`, `GET /v1/nfse/{id}/cancelamento` | operacional |
+| Eventos | `GET /v1/nfe/events`, `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cce`, `GET /v1/nfse/events`, `GET /v1/nfse/{id}`, `GET /v1/nfse/{id}/cancelamento` | operacional |
 
 **O status local nunca vem da resposta da emissão além do `id` e do status inicial.** É o feed, com o webhook como aviso, que fecha o desfecho. É a lição que este exemplo existe para ensinar.
+
+## A NFS-e Padrão Nacional
+
+A NFS-e é **outra família** na API (`/v1/nfse`), e não uma nota com outro modelo: o `id` de uma NF-e responde `404` nas rotas da NFS-e, e o de uma NFS-e responde `404` nas da NF-e. Por isso o exemplo tem tabela, telas e cliente próprios, e o mesmo molde da NF-e: a `Idempotency-Key` e o corpo gravados **antes** da chamada, o `wait` e o feed como fonte de verdade.
+
+**O onboarding tem três coisas a mais**, todas na tela Emitente:
+
+- **A inscrição municipal** vai no `prest.im` de toda DPS, e a que vale é a do **CNC NFS-e** (o "Indicador Municipal" do Emissor Nacional), que pode não ser a do cartão nem a do alvará. A SEFIN recusa a DPS com a IM ausente ou errada (`E0116`, que dispensa o MEI) e com a que o CNC não registra para o CNPJ no município (`E0120`).
+- **A consulta de convênio** pergunta ao Ambiente de Dados Nacional o que o município publicou, por código de município. O `veredito` diz se a parametrização **veio**, e não se o município aderiu ao Sistema Nacional; a consulta **não bloqueia a emissão**; e o `503` do ADN fora do ar se repete, porque indisponibilidade não é negativa. Antes da ativação ela vai com a credencial de gestão, porque a do emitente só autentica depois dela.
+- **A série de DPS** é provisionada como a de NF-e, mas por `tipoDocumento: "dps"`, sem `modelo`, na faixa de 1 a 49999.
+
+**A emissão** (Nova NFS-e) monta o `documento` da DPS com o mínimo de ponta a ponta: competência, tomador (CPF, CNPJ ou CNPJ alfanumérico, sem pontuação), serviço e valor. O prestador, o `dhEmi`, a série, o número e o ambiente são da plataforma, e o que vier deles no documento é ignorado, então a tela nem os pede. **O `totTrib` segue o regime**: o ME/EPP (CRT 1 e 2) leva `pTotTribSN`, porque o ramo `indTotTrib` lhe é vedado (`E0712`), e os outros levam `indTotTrib: "0"`. O código de tributação nacional que a tela traz é plausível, não uma recomendação: o enquadramento do seu serviço é o que o seu contador define, e é ele que o município parametriza.
+
+**O desfecho** chega pelo feed da NFS-e, `GET /v1/nfse/events`, e pelo webhook, que é um só e leva as duas famílias (o `type` as distingue). Os dois feeds **dividem a numeração do `seq`**, então cada um enxerga como buraco o `seq` do outro, e **cada um tem o seu cursor**: com um só, o cursor da NF-e passaria do `seq` de uma NFS-e que concluiu antes dela, e o feed da NFS-e a perderia. A tabela de eventos continua uma só, porque o `seq` é único entre as famílias.
+
+**A tela NFS-e** lista com o status local e oferece o que a situação permite:
+
+- **XML** e **DANFSe** existem depois de a DPS virar NFS-e (antes é `409 nfse-xml-unavailable` e `409 nfse-danfse-unavailable`) e seguem na cancelada e na substituída, o DANFSe com a marca da situação atual.
+- **Consultar** é assíncrona, não leva `Idempotency-Key` e não gera evento: a releitura traz o cancelamento feito fora da plataforma, com a origem (`pedido`, `analise-fiscal` ou `oficio`).
+- **Cancelar** só na autorizada, com o código (`1` erro na emissão, `2` serviço não prestado, `9` outros) e a justificativa. O aceite devolve o id de um comando **novo**, e a NFS-e segue autorizada até o feed trazer o `nfse.cancel` dele, que sai **sem `outcome`**: quem diz como a tentativa terminou é a leitura de `GET /v1/nfse/{id}/cancelamento`. O prazo é do município, e a plataforma não o confere: a recusa por prazo vem da SEFIN, como tentativa rejeitada.
+- **Substituir** é uma emissão nova com `substituicao` no corpo, que leva o `id` que a plataforma devolveu no aceite da original. A SEFIN gera a substituta e cancela a original no mesmo envio, e a original só vira substituída quando o feed fecha a substituta, que a tela então relê. O formulário parte do que a original informou, porque a SEFIN recusa com `E0063` a substituta de um prestador que era ME/EPP e que muda a competência, o valor ou o tomador, e a plataforma não confere isso antes do envio.
+
+**O que o exemplo não faz:** reabrir uma DPS rejeitada no mesmo `numeroDps` (`reabrir: true`; emitir de novo toma o próximo número), a lista com filtros e os agregados (`GET /v1/nfse`, `GET /v1/nfse/agregados`), e os grupos opcionais da DPS (obra, evento, exportação, reforma tributária).
 
 ## `failed` e `blocked` não são a mesma coisa
 
@@ -130,10 +160,11 @@ O mesmo processo recebe `POST /webhook`: lê o corpo cru, confere `X-Signature` 
 - `src/cliente-api.ts`: **uma função por rota**. É o arquivo para portar quando o seu ERP fala outra linguagem. Ali estão o HTTP Basic, os dois envelopes de erro, o recuo no `429` e o comentário de qual escopo cada rota exige.
 - `src/telas/`: uma tela por arquivo, com as rotas que consome no cabeçalho. `notas.ts` tem a lista, o detalhe e as operações sobre a nota; `inutilizacao.ts` a faixa; `webhook.ts` é o receptor.
 - `src/documento.ts`: como o `documento` é montado a partir dos cadastros, e a escolha da variante pelo CRT.
+- `src/documento-nfse.ts`: o mesmo para a DPS da NFS-e, com o ramo do `totTrib` escolhido pelo CRT. `src/telas/nova-nfse.ts` e `src/telas/nfse.ts` são as telas dela.
 - `src/texto-sefaz.ts`: a restrição de leiaute que a justificativa e o texto da carta obedecem, conferida antes da chamada.
 - `src/eventos.ts`: o único caminho que muda o status local depois da emissão e fecha as operações; o feed e o webhook entram por ele.
 - `src/banco.ts`: o que a aplicação lembra entre uma requisição e outra, inclusive a tabela `operacao`.
-- `schema/nfe-data.schema.json`: o JSON Schema do campo `documento` da emissão, copiado do Flex DFe na tag indicada no `$comment`.
+- `schema/nfe-data.schema.json` e `schema/nfse-data.schema.json`: o JSON Schema do campo `documento` da emissão de NF-e e de NFS-e, copiados do Flex DFe na tag indicada no `$comment`. Nenhum código os importa: são para ler ao lado do documento que a aplicação monta.
 
 ## Testes
 
@@ -141,6 +172,6 @@ O mesmo processo recebe `POST /webhook`: lê o corpo cru, confere `X-Signature` 
 npm test
 ```
 
-Sobem a aplicação e uma **API falsa** em processo, e dirigem a tela por HTTP. Não precisam de credencial nem de rede. A API falsa (`test/api-falsa.ts`) é escrita à mão a partir da Referência: se o contrato mudar, é ali que a divergência aparece. Os cenários cobrem o cadastro até a série, a emissão nos dois modelos, o feed reentrante, o webhook, a consulta, o cancelamento recusado e registrado, a carta cumulativa e recusada no 65, o DACCE só na carta registrada, a inutilização, `failed` e `blocked` nas ações oferecidas, a nota `reconciliando`, e o `429` com `Retry-After`.
+Sobem a aplicação e uma **API falsa** em processo, e dirigem a tela por HTTP. Não precisam de credencial nem de rede. A API falsa (`test/api-falsa.ts`) é escrita à mão a partir da Referência: se o contrato mudar, é ali que a divergência aparece. Os cenários cobrem o cadastro até a série, a emissão nos dois modelos, o feed reentrante, o webhook, a consulta, o cancelamento recusado e registrado, a carta cumulativa e recusada no 65, o DACCE só na carta registrada, a inutilização, `failed` e `blocked` nas ações oferecidas, a nota `reconciliando`, e o `429` com `Retry-After`. Os da NFS-e cobrem o onboarding (a IM, o convênio com o ADN fora do ar, a série de DPS), o `totTrib` por regime, o corpo da DPS, o feed com o cursor próprio, o webhook das duas famílias, a consulta, o cancelamento recusado e registrado, a substituição e o XML e o DANFSe.
 
 `npm run check` roda a checagem de tipos e os testes.

@@ -384,7 +384,7 @@ ${resultado(erroLeitura)}
   <h2>Substituir <span class="rota">POST /v1/nfse</span> com <code>substituicao</code></h2>
   ${permiteSubstituirNfse(nfse)
     ? html`<p>É uma emissão nova, com o mesmo documento e o pedido de substituição: a SEFIN gera a substituta e cancela a original no mesmo envio. O pedido leva o <code>id</code> desta NFS-e, o que a plataforma devolveu no aceite dela, e o motivo. A original só vira substituída quando a substituta é autorizada, e o feed (tela Eventos) é quem avisa. A substituta conta na franquia como qualquer emissão.</p>
-  ${emitente && exigePercentualSimples(emitente.crt) ? html`<p><b>ME/EPP:</b> a SEFIN recusa com E0063 a substituta que muda a competência, o valor do serviço ou o tomador identificado na original, e a plataforma não confere isso antes do envio. A substituta rejeitada também conta na franquia. O formulário vem preenchido com o que a original informou.</p>` : vazio}
+  ${emitente && exigePercentualSimples(emitente.crt) ? html`<p><b>ME/EPP:</b> se o prestador era ME/EPP na original e continua ME/EPP, ou passa a MEI, na competência da substituta, a SEFIN recusa com E0063 a substituta que muda a competência, o valor do serviço ou o tomador identificado na original. A plataforma não confere isso antes do envio, e a substituta rejeitada também conta na franquia. O formulário vem preenchido com o que a original informou.</p>` : vazio}
   <form method="post" action="/nfse/${nfse.id}/substituir">
     <div class="grid">
       <label>Código (<code>codigoJustificativa</code>)<br><select name="codigo_justificativa">${CODIGOS_SUBSTITUICAO.map(([c, nome]) => html`<option value="${c}">${c} · ${nome}</option>`)}</select></label>
