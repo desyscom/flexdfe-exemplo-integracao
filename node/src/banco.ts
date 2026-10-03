@@ -479,7 +479,7 @@ export class Banco {
       .run(commandId, status, ultimoResultado, id);
   }
 
-  /** Um desfecho, venha do `wait`, do feed ou do webhook. `confirmadoPor` só é preenchido pelos dois últimos. */
+  /** Um desfecho, venha do `wait`, do feed, do webhook ou de uma releitura. `confirmadoPor` só é preenchido pelo feed e pelo webhook. */
   gravarDesfecho(
     id: number,
     d: {

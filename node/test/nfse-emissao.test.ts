@@ -110,11 +110,12 @@ test('o tomador sai por cpf, por cnpj ou por cnpj alfanumérico, conforme o docu
   }
 });
 
-test('o valor: 1.500,00 e 1.500 são mil e quinhentos, e 1500.5 é um real e meio', async () => {
+test('o valor: 1.500,00 e 1.500 são mil e quinhentos reais, e 1500.5 são mil e quinhentos reais e cinquenta centavos', async () => {
   const c = await subir();
   try {
     await ateSerieDps(c);
-    for (const [texto, esperado] of [['1.500,00', 1500], ['1.500', 1500], ['1500', 1500], ['1500,5', 1500.5], ['1500.5', 1500.5], ['2.500.000,75', 2500000.75], ['0,5', 0.5]] as const) {
+    // `0.500` não é milhar (não há milhar abaixo de mil): é meio real, com ponto decimal.
+    for (const [texto, esperado] of [['1.500,00', 1500], ['1.500', 1500], ['1500', 1500], ['1500,5', 1500.5], ['1500.5', 1500.5], ['2.500.000,75', 2500000.75], ['0,5', 0.5], ['0.500', 0.5]] as const) {
       await c.post('/nova-nfse/emitir', pedidoNfse({ vserv: texto }));
       const corpo = ultimoEnvio(c).corpo as { documento: { valores: { vServ: number } } };
       assert.equal(corpo.documento.valores.vServ, esperado, texto);

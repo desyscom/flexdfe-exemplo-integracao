@@ -33,12 +33,14 @@ export const acoesNovaNfse: Record<string, Rota> = {
 
 /**
  * `1.500,00` e `1500,5` são reais, e `1500.5` é um número com ponto decimal: a vírgula diz qual dos dois chegou. Sem
- * vírgula, o ponto seguido de exatamente três dígitos é separador de milhar (`1.500` é mil e quinhentos, e não um
- * real e meio), porque é como quem digita em português o escreve.
+ * vírgula, só o formato de milhar (`1.500`, `2.500.000`: de um a três dígitos que não começam por zero, e grupos de
+ * exatamente três depois de cada ponto) é separador de milhar, porque é como quem digita em português escreve mil e
+ * quinhentos; o resto é ponto decimal (`0.500` é meio, `1500.123` é um número com três casas). Um valor em reais tem
+ * duas casas, então um ponto seguido de três dígitos nunca é decimal.
  */
 export function numeroBr(texto: string): number {
   if (texto.includes(',')) return Number(texto.replaceAll('.', '').replace(',', '.'));
-  return /^\d{1,3}(\.\d{3})+$/.test(texto) ? Number(texto.replaceAll('.', '')) : Number(texto);
+  return /^[1-9]\d{0,2}(\.\d{3})+$/.test(texto) ? Number(texto.replaceAll('.', '')) : Number(texto);
 }
 
 /** A data de hoje em Brasília, `AAAA-MM-DD`: é a da `dhEmi`, contra a qual a competência não pode ser futura. */

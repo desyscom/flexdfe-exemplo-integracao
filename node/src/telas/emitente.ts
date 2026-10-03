@@ -19,7 +19,7 @@
 //   C. Série de DPS          POST /v1/series  { "tipoDocumento": "dps" }    operacional → o próprio passo 5
 //
 // O convênio só é leitura e não bloqueia emissão nenhuma. Antes da ativação ele vai com a credencial de gestão,
-// porque a do emitente só autentica depois dela; depois da ativação, com a operacional.
+// porque a do emitente só passa depois dela (antes, a API a recusa com 403); com a operacional já guardada, vai com ela.
 //
 // Os passos 1 a 4 são o ONBOARDING de um emitente novo, e existem porque um integrador precisa
 // fazê-lo pela API. Quem já tem o emitente pronto no painel — cadastrado, com certificado, ativo e
@@ -113,7 +113,13 @@ async function vincular({ form, banco, cliente }: Contexto): Promise<Resultado> 
   try {
     contexto = (await cliente.contexto(credencial)).corpo;
   } catch (erro) {
-    return resultadoDeErro('A API não aceitou a credencial', erro);
+    const r = resultadoDeErro('A API não aceitou a credencial', erro);
+    // O 403 sem `type` é a autenticação recusando uma credencial que existe: o caso mais comum é a de um emitente que
+    // ainda é rascunho, porque a de emitente só passa depois do certificado e da ativação.
+    if (r && erro instanceof ErroApi && erro.status === 403 && !erro.type) {
+      return { ...r, detalhe: `${r.detalhe} O caso mais comum é o emitente que ainda é rascunho: a credencial dele é recusada com 403 enquanto ele não tem o certificado e a ativação. Ative-o antes, no painel, ou pelos passos 2 e 3 com a credencial de gestão do .env.` };
+    }
+    return r;
   }
   if (!ehDeEmitente(contexto)) {
     return {
@@ -140,12 +146,13 @@ async function vincular({ form, banco, cliente }: Contexto): Promise<Resultado> 
   const foraDaUf = semente && semente.uf !== emitente.uf
     ? ` O destinatário semeado está em ${semente.municipio}/${semente.uf} e o emitente em ${emitente.municipio}/${emitente.uf}: ajuste-o na tela Destinatários antes da primeira nota, porque venda interestadual a consumidor final exige o grupo do DIFAL, que este exemplo não monta.`
     : '';
-  const pendencias = [!emitente.certificado && 'sem certificado', !emitente.ativo && 'inativo'].filter(Boolean).join(' e ');
+  // A credencial de um emitente inativo é recusada com 403 antes de chegar aqui, então a ficha lida é de um emitente ativo.
+  const semCertificado = !emitente.certificado;
 
   return {
     ok: true,
     titulo: `Emitente ${emitente.razao_social} vinculado`,
-    detalhe: `id e credencial guardados no banco local; nada foi criado na plataforma.${pendencias ? ` A ficha veio ${pendencias}: resolva no painel, ou pelos passos 2 e 3 com a credencial de gestão do .env.` : ' Certificado no cofre e emitente ativo: pode ir direto para a série, no passo 5.'}${foraDaUf}`,
+    detalhe: `id e credencial guardados no banco local; nada foi criado na plataforma.${semCertificado ? ' A ficha veio sem certificado: resolva no painel, ou pelo passo 2 com a credencial de gestão do .env.' : ' Certificado no cofre e emitente ativo: pode ir direto para a série, no passo 5.'}${foraDaUf}`,
     corpo: emitente,
   };
 }
@@ -240,9 +247,10 @@ async function gravarInscricaoMunicipal({ form, config, banco, cliente }: Contex
 /**
  * Pergunta ao ADN o que o município publicou. A resposta diz se a parametrização veio, e não se o município
  * aderiu ao Sistema Nacional; e a consulta não bloqueia emissão nenhuma. É leitura, e a rota aceita tanto a
- * credencial de integrador quanto a de emitente. Antes da ativação só existe a de gestão, porque a do emitente só
- * autentica depois dela; depois, vai com a operacional, que alcança o emitente mesmo fora da carteira da de gestão
- * (um emitente vinculado pelo atalho), como a leitura da ficha.
+ * credencial de integrador quanto a de emitente. Enquanto a operacional não está guardada (antes do passo 4) só há a
+ * de gestão, e a de emitente, mesmo cunhada, é recusada com 403 até ele ser ativado. Com a operacional guardada, vai
+ * com ela, que alcança o emitente mesmo quando ele está fora da carteira da de gestão (um emitente vinculado pelo
+ * atalho), como a leitura da ficha.
  */
 async function consultarConvenio({ form, config, banco, cliente }: Contexto): Promise<Resultado> {
   const { emitenteId } = banco.configuracao();
@@ -389,7 +397,7 @@ ${passo('A', 'Inscrição municipal', 'PATCH /v1/emitentes/{id}  { "inscricao_mu
 
 ${passo('B', 'Consultar o convênio do município (opcional)', 'POST /v1/emitentes/{id}/consultas-convenio  { "codigoMunicipio" }', 'de gestão', false, !emitente
   ? bloqueado('cadastre o emitente')
-  : html`<p>Pergunta ao Ambiente de Dados Nacional (ADN) que parâmetros de convênio o município publicou. É por código de município, e qualquer um serve, não só o do emitente; a resposta vem no corpo, sem comando a acompanhar. O certificado do emitente abre o mTLS com o ADN, e sem ele a consulta é recusada com 422. Pode ser feita antes da ativação, porque antes dela só existe a credencial de gestão, e a do emitente só autentica depois dela; depois, vai com a operacional.</p>
+  : html`<p>Pergunta ao Ambiente de Dados Nacional (ADN) que parâmetros de convênio o município publicou. É por código de município, e qualquer um serve, não só o do emitente; a resposta vem no corpo, sem comando a acompanhar. O certificado do emitente abre o mTLS com o ADN, e sem ele a consulta é recusada com 422. Pode ser feita antes da ativação, porque antes do passo 4 só existe a credencial de gestão, e a do emitente é recusada com 403 até ele ser ativado; com a operacional já guardada, vai com ela.</p>
 <p><b>Não bloqueia a emissão</b>, e o veredito não diz se o município aderiu ao Sistema Nacional: diz se a parametrização veio.</p>
 <form method="post" action="/emitente/convenio"><label>Código do município (IBGE, 7 dígitos) <input name="codigo_municipio" placeholder="4106902" size="9" maxlength="7" value="${cfg.codMunicipio ?? ''}"></label><button>Consultar convênio</button></form>`)}`;
 

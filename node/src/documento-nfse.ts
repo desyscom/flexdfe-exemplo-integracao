@@ -36,7 +36,7 @@ export const exigePercentualSimples = (crt: number): boolean => crt === 1 || crt
  */
 export const podeSofrerE0063 = (crt: number): boolean => crt === 1 || crt === 2 || crt === 4;
 
-export const ehCpf =(documento: string): boolean => /^\d{11}$/.test(documento);
+export const ehCpf = (documento: string): boolean => /^\d{11}$/.test(documento);
 /** CNPJ alfanumérico: as 12 primeiras posições podem ser letras, as 2 últimas são dígitos. */
 export const ehCnpj = (documento: string): boolean => /^[0-9A-Z]{12}\d{2}$/.test(documento);
 

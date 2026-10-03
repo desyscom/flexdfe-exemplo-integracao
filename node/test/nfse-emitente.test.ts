@@ -64,7 +64,7 @@ test('convênio: sai pela credencial de gestão, antes da ativação, e a tela n
 
     const r = await c.post('/emitente/convenio', { codigo_municipio: '4106902' });
     const consulta = envio(c, 'POST', /\/consultas-convenio$/);
-    assert.equal(consulta.clientId, 'gestao', 'antes da ativação a credencial do emitente não autentica: a consulta vai com a de gestão');
+    assert.equal(consulta.clientId, 'gestao', 'antes do passo 4 só existe a credencial de gestão, e a do emitente é recusada com 403 até a ativação: a consulta vai com a de gestão');
     assert.deepEqual(consulta.corpo, { codigoMunicipio: '4106902' });
     assert.equal(consulta.cabecalhos['idempotency-key'], undefined, 'a consulta não cria nada: não leva Idempotency-Key');
 
@@ -82,7 +82,7 @@ test('convênio: sai pela credencial de gestão, antes da ativação, e a tela n
   }
 });
 
-test('convênio: depois da ativação vai pela credencial operacional, que alcança o emitente mesmo fora da carteira de gestão', async () => {
+test('convênio: com a credencial operacional já guardada, a consulta vai por ela', async () => {
   const c = await subir();
   try {
     await c.post('/emitente/cadastrar', EMITENTE_NFSE);
@@ -92,16 +92,16 @@ test('convênio: depois da ativação vai pela credencial operacional, que alcan
 
     assert.match((await c.post('/emitente/convenio', { codigo_municipio: '4106902' })).texto, /Convênio consultado: parametrizado/);
     const consulta = envio(c, 'POST', /\/consultas-convenio$/);
-    assert.equal(consulta.clientId, c.banco.configuracao().credencialClientId, 'a rota aceita a de emitente, e a de gestão do .env pode nem enxergar um emitente vinculado');
+    assert.equal(consulta.clientId, c.banco.configuracao().credencialClientId, 'a rota aceita a credencial de emitente, e é por ela que a consulta sai quando ela já está guardada');
   } finally {
     await c.encerrar();
   }
 });
 
-test('a credencial de um emitente inativo não autentica: o 403 vem sem type, e nada é guardado', async () => {
+test('a credencial de um emitente inativo é recusada com 403 sem type, o atalho explica por quê, e nada é guardado', async () => {
   const c = await subir();
   try {
-    // O emitente nasce rascunho. A credencial dele existe (foi cunhada no painel), mas só autentica depois da ativação.
+    // O emitente nasce rascunho. A credencial dele existe (foi cunhada no painel), mas só passa depois da ativação.
     await c.post('/emitente/cadastrar', EMITENTE_NFSE);
     const emitenteId = c.banco.configuracao().emitenteId!;
     c.api.credenciais.push({ clientId: 'op-rascunho', secret: 'segredo', escopo: 'emitente', emitenteId });
@@ -111,6 +111,7 @@ test('a credencial de um emitente inativo não autentica: o 403 vem sem type, e 
     assert.match(r.texto, /A API não aceitou a credencial: HTTP 403/);
     assert.match(r.texto, /sem type: é a autenticação falando/);
     assert.match(r.texto, /emitente inativo/);
+    assert.match(r.texto, /O caso mais comum é o emitente que ainda é rascunho/);
     assert.equal(c.banco.configuracao().credencialClientId, null);
     assert.equal(c.banco.configuracao().emitenteId, null);
   } finally {

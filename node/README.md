@@ -6,7 +6,7 @@ Uma tela local, sem framework, que percorre o ciclo inteiro do emitente na API d
 >
 > **O fluxo da NFS-e ainda não foi rodado contra a API de verdade.** O código, a API falsa e a cópia dos schemas seguem o contrato da **v0.5.0**, a primeira com a família `/v1/nfse`, mas a tag acima só muda depois de uma rodada real em homologação. Até lá, trate as telas Nova NFS-e e NFS-e como leitura do contrato, não como prova de que a SEFIN as aceita.
 >
-> **O código desta versão já não roda na v0.3.1**, nem na NF-e e na NFC-e: ele lê `tipos_documento` e `tipoDocumento`, que a API só publica a partir da v0.4.0. A rodada real na v0.3.1 foi feita antes desta mudança; depois dela, o fluxo inteiro só passou pela API falsa.
+> **A tela Emitente já não funciona na v0.3.1**: ela lê `tipos_documento` e `tipoDocumento`, que a API só publica a partir da v0.4.0. A última rodada real foi na v0.3.1, anterior a essa mudança; depois dela, o código só passou pela API falsa.
 
 ## Pré-requisitos
 
@@ -103,7 +103,7 @@ Cada tela consome rotas nomeadas da API, escritas no cabeçalho do arquivo dela 
 | Nova nota | `GET /v1/emitentes/{id}`, `POST /v1/nfe?wait=8000` (com `Idempotency-Key`) | operacional |
 | Notas | `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/xml`, `GET /v1/nfe/{id}/danfe`, `POST /v1/nfe/{id}/consulta`, `POST /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cancelamento`, `POST /v1/nfe/{id}/cce`, `GET /v1/nfe/{id}/cce`, `GET /v1/nfe/{id}/cce/{cartaId}/dacce` | operacional |
 | Inutilização | `POST /v1/inutilizacoes?wait=8000` (com `Idempotency-Key`) | operacional |
-| Emitente, seção NFS-e | `PATCH /v1/emitentes/{id}` (a inscrição municipal), `POST /v1/emitentes/{id}/consultas-convenio` | gestão; o convênio, depois da ativação, vai com a operacional |
+| Emitente, seção NFS-e | `PATCH /v1/emitentes/{id}` (a inscrição municipal), `POST /v1/emitentes/{id}/consultas-convenio` | gestão; o convênio, com a operacional já guardada, vai com ela |
 | Nova NFS-e | `GET /v1/emitentes/{id}`, `POST /v1/nfse?wait=8000` (com `Idempotency-Key`) | operacional |
 | NFS-e | `POST /v1/nfse?wait=8000` (reenviar e substituir), `GET /v1/emitentes/{id}` (o CRT, para o aviso da substituição), `GET /v1/nfse/{id}`, `GET /v1/nfse/{id}/xml`, `GET /v1/nfse/{id}/danfse`, `POST /v1/nfse/{id}/consulta`, `POST /v1/nfse/{id}/cancelamento`, `GET /v1/nfse/{id}/cancelamento` | operacional |
 | Eventos | `GET /v1/nfe/events`, `GET /v1/nfe/{id}`, `GET /v1/nfe/{id}/cancelamento`, `GET /v1/nfe/{id}/cce`, `GET /v1/nfse/events`, `GET /v1/nfse/{id}`, `GET /v1/nfse/{id}/cancelamento` | operacional |
@@ -117,7 +117,7 @@ A NFS-e é **outra família** na API (`/v1/nfse`), e não uma nota com outro mod
 **O onboarding tem três coisas a mais**, todas na tela Emitente:
 
 - **A inscrição municipal** vai no `prest.im` de toda DPS, e a que vale é a do **CNC NFS-e** (o "Indicador Municipal" do Emissor Nacional), que pode não ser a do cartão nem a do alvará. A SEFIN recusa a DPS com a IM ausente ou errada (`E0116`, que dispensa o MEI) e com a que o CNC não registra para o CNPJ no município (`E0120`). Se o município exige a IM ou a proíbe depende dele, e nenhuma consulta de convênio responde isso.
-- **A consulta de convênio** pergunta ao Ambiente de Dados Nacional o que o município publicou, por código de município. O `veredito` diz se a parametrização **veio**, e não se o município aderiu ao Sistema Nacional; a consulta **não bloqueia a emissão**; e a indisponibilidade não é negativa: o `503` (o ADN não respondeu) e o `504` (a consulta não concluiu na janela) se repetem. Antes da ativação só existe a credencial de gestão, porque a do emitente só autentica depois dela; depois, a consulta vai com a operacional.
+- **A consulta de convênio** pergunta ao Ambiente de Dados Nacional o que o município publicou, por código de município. O `veredito` diz se a parametrização **veio**, e não se o município aderiu ao Sistema Nacional; a consulta **não bloqueia a emissão**; e a indisponibilidade não é negativa: o `503` (o ADN não respondeu) e o `504` (a consulta não concluiu na janela) se repetem. Antes do passo 4 só existe a credencial de gestão, e a do emitente é recusada com `403` até ele ser ativado; com a operacional já guardada, a consulta vai com ela.
 - **A série de DPS** é provisionada como a de NF-e, mas por `tipoDocumento: "dps"`, sem `modelo`, na faixa de 1 a 49999.
 
 **A emissão** (Nova NFS-e) monta o `documento` da DPS com o mínimo de ponta a ponta: competência, tomador (CPF, CNPJ ou CNPJ alfanumérico, sem pontuação), serviço e valor. O prestador, o `dhEmi`, a série, o número e o ambiente são da plataforma, e o que vier deles dentro do `documento` é ignorado, então o `documento` não os leva; a série de DPS vai no envelope, ao lado dele. O regime do prestador deriva do CRT do cadastro, porque a tela não manda `prest.regTrib`. **O `totTrib` segue o regime**: o ME/EPP (CRT 1 e 2) leva `pTotTribSN`, porque o ramo `indTotTrib` lhe é vedado (`E0712`), e os outros levam `indTotTrib: "0"`. A competência não pode ser posterior à data de emissão, e o padrão da tela é o primeiro dia do mês de hoje em Brasília. O código de tributação nacional que a tela traz é plausível, não uma recomendação: o enquadramento do seu serviço é o que o seu contador define, e é ele que o município parametriza.
@@ -164,7 +164,7 @@ O mesmo processo recebe `POST /webhook`: lê o corpo cru, confere `X-Signature` 
 - `src/documento.ts`: como o `documento` é montado a partir dos cadastros, e a escolha da variante pelo CRT.
 - `src/documento-nfse.ts`: o mesmo para a DPS da NFS-e, com o ramo do `totTrib` escolhido pelo CRT. `src/telas/nova-nfse.ts` e `src/telas/nfse.ts` são as telas dela.
 - `src/texto-sefaz.ts`: a restrição de leiaute que a justificativa e o texto da carta obedecem, conferida antes da chamada.
-- `src/eventos.ts`: o único caminho que muda o status local depois da emissão e fecha as operações; o feed e o webhook entram por ele.
+- `src/eventos.ts`: o único caminho que confirma o desfecho depois da emissão (o que grava `confirmadoPor`) e fecha as operações; o feed e o webhook entram por ele. A resposta da emissão e a releitura de uma consulta também gravam o status, mas não confirmam nada.
 - `src/banco.ts`: o que a aplicação lembra entre uma requisição e outra, inclusive a tabela `operacao`.
 - `schema/nfe-data.schema.json` e `schema/nfse-data.schema.json`: o JSON Schema do campo `documento` da emissão de NF-e e de NFS-e, copiados do Flex DFe na tag indicada no `$comment`. Nenhum código os importa: são para ler ao lado do documento que a aplicação monta.
 

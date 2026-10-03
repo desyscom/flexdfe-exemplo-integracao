@@ -108,8 +108,9 @@ export class ApiFalsa {
   readonly series: { emitenteId: string; ambiente: string; tipoDocumento: TipoDocumento; modelo?: 55 | 65; serie: number; nextNumber: number }[] = [];
   readonly webhooks = new Map<string, { url: string; ativo: boolean; secret: string }>();
   /**
-   * O que o ADN responde à consulta de convênio: `indisponivel` é o `503` (ele não respondeu), e os municípios em
-   * `semParametrizacao` voltam `200` com o veredito `sem-parametrizacao`. Os demais voltam `parametrizado`.
+   * O que a consulta de convênio responde: `indisponivel` é o `503` (o ADN não respondeu), `lenta` é o `504` (a
+   * consulta não concluiu dentro da janela, o que não é resposta do ADN), e os municípios em `semParametrizacao`
+   * voltam `200` com o veredito `sem-parametrizacao`. Com os dois desligados, os demais voltam `parametrizado`.
    */
   readonly convenio = { indisponivel: false, lenta: false, semParametrizacao: new Set<string>() };
   /**
@@ -312,7 +313,8 @@ export class ApiFalsa {
 
     // Envelope de autenticação: { erro }, application/json, sem type.
     if (!cred) return json(401, { erro: 'credencial inválida' });
-    // A credencial de um emitente INATIVO não autentica: um emitente novo nasce rascunho, e só emite depois do certificado e da ativação.
+    // A credencial de um emitente INATIVO é recusada com 403: um emitente novo nasce rascunho, e a credencial dele só passa
+    // depois do certificado e da ativação.
     if (cred.escopo === 'emitente' && this.emitentes.get(cred.emitenteId!)?.ativo === false) {
       return json(403, { erro: 'emitente inativo: um emitente novo nasce rascunho; envie o certificado A1 e ative-o' });
     }

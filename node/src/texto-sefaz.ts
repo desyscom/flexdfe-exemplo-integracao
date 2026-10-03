@@ -1,5 +1,5 @@
-// A justificativa do cancelamento e da inutilização, a do cancelamento e a da substituição da NFS-e e o texto da
-// carta de correção obedecem à mesma restrição de leiaute da SEFAZ: tamanho mínimo e máximo, só letras (acentuadas inclusive), dígitos,
+// A justificativa do cancelamento (NF-e e NFS-e), a da inutilização, a da substituição da NFS-e e o texto da carta
+// de correção obedecem à mesma restrição de leiaute da SEFAZ: tamanho mínimo e máximo, só letras (acentuadas inclusive), dígitos,
 // espaço e pontuação simples, sem espaço no início ou no fim. A API recusa com `422` na hora
 // (`cancellation-reason-invalid`, que a NFS-e também usa, e `correction-text-invalid`); conferir aqui é mais barato do que
 // gastar uma chamada, e mostra ao programador o que a SEFAZ aceita antes de ele esbarrar nela.

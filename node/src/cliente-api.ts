@@ -423,7 +423,7 @@ export function criarClienteApi(opcoes: Opcoes) {
      * código de município (qualquer um serve, não só o do emitente) e síncrona: a resposta vem no corpo do `200`.
      * O certificado do emitente abre o mTLS com o ADN, daí a consulta pender de um emitente; sem ele é `422`.
      * É leitura: não leva `Idempotency-Key`, e a rota aceita a credencial de integrador e a de emitente. Antes da
-     * ativação só serve a de integrador (a do emitente só autentica depois dela). Não bloqueia emissão nenhuma.
+     * ativação só serve a de integrador (a do emitente é recusada com 403 até ele ser ativado). Não bloqueia emissão nenhuma.
      * Indisponibilidade não é negativa: o ADN sem resposta é `503`, e a consulta que não concluiu na janela é `504`;
      * os dois se repetem.
      */

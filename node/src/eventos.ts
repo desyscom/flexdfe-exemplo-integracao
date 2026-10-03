@@ -1,5 +1,6 @@
-// O único caminho que muda o status local de uma nota depois da emissão, e o que fecha as operações
-// sobre ela (cancelamento, carta, inutilização). O feed e o webhook entram pela mesma porta,
+// O único caminho que CONFIRMA o desfecho de uma nota depois da emissão (é ele que grava `confirmadoPor`), e o que
+// fecha as operações sobre ela (cancelamento, carta, inutilização). A resposta da emissão e a releitura de uma
+// consulta também gravam status e situação, mas não confirmam nada. O feed e o webhook entram pela mesma porta,
 // `aplicarEvento`, por isso o que um faz o outro faz igual.
 //
 // Três regras que o feed exige de quem o consome:
