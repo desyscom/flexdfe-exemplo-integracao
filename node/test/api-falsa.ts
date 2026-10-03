@@ -78,6 +78,11 @@ export class ApiFalsa {
    */
   readonly series: { emitenteId: string; ambiente: string; tipoDocumento: TipoDocumento; modelo?: 55 | 65; serie: number; nextNumber: number }[] = [];
   readonly webhooks = new Map<string, { url: string; ativo: boolean; secret: string }>();
+  /**
+   * O que o ADN responde à consulta de convênio: `indisponivel` é o `503` (ele não respondeu), e os municípios em
+   * `semParametrizacao` voltam `200` com o veredito `sem-parametrizacao`. Os demais voltam `parametrizado`.
+   */
+  readonly convenio = { indisponivel: false, semParametrizacao: new Set<string>() };
   /** A senha que "abre" o .pfx de teste, e o conteúdo cujo titular "bate" com o CNPJ. */
   senhaCerta = 'senha-certa';
   conteudoPfxDoTitular = 'PFX-DO-TITULAR';
@@ -272,6 +277,24 @@ export class ApiFalsa {
         if (Buffer.from(c.pfx_base64, 'base64').toString('utf8') !== this.conteudoPfxDoTitular) return problema(422, 'certificate-holder-mismatch');
         e.certificado = { titular: e.cnpj, valido_de: '2026-01-01', valido_ate: '2027-01-01', situacao: 'vigente', dias_para_expirar: 200 };
         return json(200, this.comWebhook(e));
+      }
+      // A consulta de convênio é síncrona e é leitura: não exige `Idempotency-Key` e não olha o `ativo` do emitente.
+      // O certificado dele é o que abre o mTLS com o ADN, e sem ele a consulta é recusada antes de sair (422).
+      if (metodo === 'POST' && sub === 'consultas-convenio') {
+        const codigo = (corpo as { codigoMunicipio?: unknown }).codigoMunicipio;
+        if (typeof codigo !== 'string' || !/^\d{7}$/.test(codigo)) return problema(422, 'invalid-request-body', 'codigoMunicipio deve ter sete dígitos (código do IBGE)');
+        if (!e.certificado) return problema(422, 'invalid-request-body', 'o emitente não tem certificado: o ADN exige mTLS em todas as rotas');
+        if (this.convenio.indisponivel) return problema(503, 'municipal-agreement-lookup-unavailable', 'o Ambiente de Dados Nacional não respondeu');
+        const sem = this.convenio.semParametrizacao.has(codigo);
+        return json(200, {
+          id: randomUUID(),
+          consultadoEm: new Date().toISOString(),
+          codigoMunicipio: codigo,
+          veredito: sem ? 'sem-parametrizacao' : 'parametrizado',
+          httpStatus: sem ? 404 : 200,
+          mensagem: sem ? 'Município sem parametrização de convênio publicada.' : 'Parâmetros do convênio recuperados com sucesso.',
+          parametros: sem ? null : { aderenteAmbienteNacional: '1', aderenteEmissorNacional: '1', situacaoEmissaoPadraoContribuintesRFB: '1', aderenteMAN: '0', permiteAproveitamentoDeCreditos: 'true' },
+        });
       }
       if (metodo === 'GET' && sub === 'config')
         return json(200, { ambiente: { procedencia: 'emitente', valor: e.ambiente }, nfce: { procedencia: 'resolvido', versao_qrcode: '3.0', url_consulta_qrcode: 'https://x', url_consulta_chave: 'https://y' } });

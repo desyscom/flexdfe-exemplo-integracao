@@ -141,6 +141,21 @@ export type Serie = {
   nextNumber?: number;
 };
 
+/**
+ * O que o ADN respondeu sobre o convênio de um município, sem veredito nosso por cima. O `veredito` diz se a
+ * parametrização veio, e não se o município aderiu ao Sistema Nacional: nenhum dos dois valores é "o município
+ * está fora". `parametros` é o grupo que o ADN publicou, verbatim, e é `null` em `sem-parametrizacao`.
+ */
+export type ConsultaConvenio = {
+  id: string;
+  consultadoEm: string;
+  codigoMunicipio: string;
+  veredito: 'parametrizado' | 'sem-parametrizacao';
+  httpStatus: number | null;
+  mensagem: string | null;
+  parametros: Record<string, string> | null;
+};
+
 export type Webhook = {
   url: string;
   ativo: boolean;
@@ -322,14 +337,25 @@ export function criarClienteApi(opcoes: Opcoes) {
     lerConfigEmitente: (cred: Credencial, id: string) =>
       chamar<Record<string, unknown>>(cred, 'GET', `/v1/emitentes/${id}/config`),
 
+    /**
+     * NFS-e: pergunta ao Ambiente de Dados Nacional (ADN) que parâmetros de convênio um município publicou. É por
+     * código de município (qualquer um serve, não só o do emitente) e síncrona: a resposta vem no corpo do `200`.
+     * O certificado do emitente abre o mTLS com o ADN, daí a consulta pender de um emitente; sem ele é `422`.
+     * É leitura: não leva `Idempotency-Key` e não olha o `ativo` do emitente, então antes da ativação vai com a
+     * credencial de integrador (a do emitente só autentica depois dela). Não bloqueia emissão nenhuma. O ADN fora do ar
+     * é `503` ou `504`, e se repete: indisponibilidade não é negativa.
+     */
+    consultarConvenio: (cred: Credencial, emitenteId: string, codigoMunicipio: string) =>
+      chamar<ConsultaConvenio>(cred, 'POST', `/v1/emitentes/${emitenteId}/consultas-convenio`, { codigoMunicipio }),
+
     // ---- Operação: escopo de EMITENTE (credencial operacional). ----
 
     /**
      * Série `managed`: a plataforma numera, e a emissão não manda `numero`. Uma por emitente, ambiente, modelo e
      * série. Sem `ambiente` no corpo, ela nasce no ambiente atual do emitente, que neste exemplo é homologação.
      */
-    provisionarSerie: (cred: Credencial, modelo: 55 | 65, serie: number) =>
-      chamar<Serie>(cred, 'POST', '/v1/series', { modelo, serie, mode: 'managed' }),
+    provisionarSerie: (cred: Credencial, documento: 55 | 65 | 'dps', serie: number) =>
+      chamar<Serie>(cred, 'POST', '/v1/series', { ...(documento === 'dps' ? { tipoDocumento: documento } : { modelo: documento }), serie, mode: 'managed' }),
 
     /** As séries de um ambiente: sem `?ambiente=`, as do ambiente atual. O corpo diz qual, mesmo com a lista vazia. */
     listarSeries: (cred: Credencial) => chamar<{ ambiente: Serie['ambiente']; series: Serie[] }>(cred, 'GET', '/v1/series'),

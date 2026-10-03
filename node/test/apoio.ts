@@ -75,8 +75,8 @@ export async function ateSeries(c: Cenario, emitente: Record<string, string> = E
   await c.post('/emitente/certificado');
   await c.post('/emitente/ativar');
   await c.post('/emitente/credencial');
-  await c.post('/emitente/serie', { modelo: '55', serie: '1' });
-  await c.post('/emitente/serie', { modelo: '65', serie: '1' });
+  await c.post('/emitente/serie', { documento: '55', serie: '1' });
+  await c.post('/emitente/serie', { documento: '65', serie: '1' });
   await c.post('/emitente/webhook', { url: 'https://tunel.exemplo.com/webhook' });
   return c.banco.configuracao().emitenteId!;
 }
@@ -101,3 +101,6 @@ export const EMITENTE_VALIDO = {
   uf: 'rs',
   cep: '95630-000',
 };
+
+/** O emitente das telas de NFS-e: Curitiba, Simples Nacional, com a IM do CNC (a API tira a pontuação ao gravar). */
+export const EMITENTE_NFSE = { ...EMITENTE_VALIDO, cod_municipio: '4106902', municipio: 'Curitiba', uf: 'pr', cep: '80010-000', inscricao_municipal: '01.234-5' };
