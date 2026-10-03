@@ -4,7 +4,7 @@ Uma tela local, sem framework, que percorre o ciclo inteiro do emitente na API d
 
 > Testado contra a API na tag **v0.3.1**. Se a Referência em `/docs` mudou depois disso, o que está aqui pode ter envelhecido. Não há CI nem smoke automatizado: a tag é a única defesa, junto com os testes, que só pegam a divergência depois que a API falsa for atualizada a partir da Referência.
 >
-> **O fluxo da NFS-e ainda não foi rodado contra a API de verdade.** O código, a API falsa e a cópia dos schemas seguem o contrato da **v0.5.0**, a primeira com a família `/v1/nfse`, mas a tag acima só muda depois de uma rodada real em homologação. Até lá, trate as telas Nova NFS-e e NFS-e como leitura do contrato, não como prova de que a SEFIN as aceita.
+> **O fluxo da NFS-e ainda não foi rodado contra a API de verdade.** O código, a API falsa e a cópia dos schemas seguem o contrato da **v0.5.1**, que em rotas e schemas é o da v0.5.0, a primeira com a família `/v1/nfse`, mas a tag acima só muda depois de uma rodada real em homologação. Até lá, trate as telas Nova NFS-e e NFS-e como leitura do contrato, não como prova de que a SEFIN as aceita.
 >
 > **A tela Emitente já não funciona na v0.3.1**: ela lê `tipos_documento` e `tipoDocumento`, que a API só publica a partir da v0.4.0. A última rodada real foi na v0.3.1, anterior a essa mudança; depois dela, o código só passou pela API falsa.
 

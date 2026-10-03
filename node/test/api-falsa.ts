@@ -1,5 +1,5 @@
 // Uma API do Flex DFe de mentira, em processo, para os testes dirigirem a tela sem credencial
-// nem SEFAZ. Responde os contratos do OpenAPI publicado (tag v0.5.0) só no que este exemplo
+// nem SEFAZ. Responde os contratos do OpenAPI publicado (tag v0.5.1) só no que este exemplo
 // consome: os dois envelopes de erro, os escopos, o secret que aparece uma vez, as operações
 // sobre a nota emitida e o 429 da borda.
 //

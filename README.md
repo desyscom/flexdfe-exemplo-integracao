@@ -8,7 +8,7 @@ Uma aplicação mínima, para rodar na sua máquina, que percorre o ciclo inteir
 
 | Pasta | Linguagem | Estado |
 |---|---|---|
-| [`node/`](node/) | TypeScript em Node, sem framework, sem dependência nativa | completa: testada contra a API na tag `v0.3.1`. O fluxo da NFS-e acompanha a `v0.5.0` e ainda não foi rodado contra a API de verdade, e a tela Emitente já exige a `v0.4.0` ou mais nova |
+| [`node/`](node/) | TypeScript em Node, sem framework, sem dependência nativa | completa: testada contra a API na tag `v0.3.1`. O fluxo da NFS-e acompanha a `v0.5.1` e ainda não foi rodado contra a API de verdade, e a tela Emitente já exige a `v0.4.0` ou mais nova |
 
 Outras linguagens entram ao lado, cada uma na sua pasta, sem mover a primeira. Cada implementação declara no próprio README a tag da API contra a qual foi testada.
 
