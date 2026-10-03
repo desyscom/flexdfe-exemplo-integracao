@@ -1,5 +1,5 @@
 {
-  "$comment": "Copiado do flex-dfe na tag v0.5.0 (apps/api/openapi/nfse-data.schema.json) em 02/10/2026. Nao edite: substitua pela copia da tag seguinte quando o contrato mudar.",
+  "$comment": "Copiado do flex-dfe na tag v0.5.0 (apps/api/openapi/nfse-data.schema.json) em 02/10/2026, e conferido identico na v0.5.1 em 03/10/2026. Nao edite: substitua pela copia da tag seguinte quando o contrato mudar.",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "x-proveniencia": {
     "gerado": "Artefato gerado automaticamente — NÃO EDITAR À MÃO.",
