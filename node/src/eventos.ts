@@ -14,6 +14,12 @@
 // aponta a nota. `nfe.cancel`, `nfe.cce` e `nfe.inutiliza` apontam o comando NOVO que o aceite da
 // operação devolveu, não a nota: é pela tabela `operacao` que se chega dela à nota. A consulta
 // (`POST /v1/nfe/{id}/consulta`) não gera evento: o resultado dela vem ao reler a nota.
+//
+// A NFS-e é outra família, com os mesmos três cuidados e o mesmo caminho: `nfse.emit` aponta a NFS-e, e
+// `nfse.cancel`, o comando novo do cancelamento. O webhook é um só e leva as duas famílias, e o `type` as
+// distingue. Já os feeds são dois (`/v1/nfe/events` só com `nfe.*`, `/v1/nfse/events` só com `nfse.*`), e cada
+// um tem o seu cursor: as duas famílias dividem a numeração do `seq`, então o feed de uma enxerga, como buracos,
+// os `seq` da outra. Por dividirem a numeração, o `seq` é único entre elas, e a tabela de eventos é uma só.
 
 import type { Banco, Evento, Operacao } from './banco.ts';
 import type { ClienteApi, EventoFeed } from './cliente-api.ts';
@@ -36,6 +42,7 @@ export async function aplicarEvento(aplicador: Aplicador, evento: EventoFeed, or
   let efeito: string;
   if (evento.type === 'nfe.emit') efeito = await aplicarEmissao(aplicador, evento, origem);
   else if (evento.type === 'nfe.cancel' || evento.type === 'nfe.cce' || evento.type === 'nfe.inutiliza') efeito = await aplicarOperacao(aplicador, evento, origem);
+  else if (evento.type === 'nfse.emit') efeito = await aplicarEmissaoNfse(aplicador, evento, origem);
   else efeito = `ignorado: tipo ${evento.type} não é tratado por esta tela`;
 
   banco.gravarEvento({ seq: evento.seq, commandId: evento.commandId, type: evento.type, status: evento.status, outcome: evento.outcome, origem, efeito });
@@ -63,6 +70,31 @@ async function aplicarEmissao({ banco, cliente, operacional }: Aplicador, evento
     ultimoResultado: JSON.stringify(detalhe),
   });
   return `aplicado: nota ${nota.id} ${detalhe.situacao} (${evento.status}${evento.outcome ? '/' + evento.outcome : ''})`;
+}
+
+/**
+ * O mesmo da emissão da NF-e, para a NFS-e. O evento diz COMO terminou (status, outcome); a situação, os números e a
+ * chave vêm da leitura da NFS-e, que traz o que a tela precisa mostrar e o que só a SEFIN calcula.
+ */
+async function aplicarEmissaoNfse({ banco, cliente, operacional }: Aplicador, evento: EventoFeed, origem: Evento['origem']): Promise<string> {
+  const nfse = banco.lerNfsePorComando(evento.commandId);
+  if (!nfse) return 'ignorado: comando não é de uma NFS-e deste banco local';
+  if (!ehTerminal(evento.status)) {
+    banco.gravarDesfechoNfse(nfse.id, { status: evento.status, outcome: evento.outcome, confirmadoPor: origem });
+    return `aplicado: NFS-e ${nfse.id} segue ${evento.status}`;
+  }
+  const detalhe = (await cliente.lerNfse(operacional, evento.commandId)).corpo;
+  banco.gravarDesfechoNfse(nfse.id, {
+    status: evento.status,
+    outcome: evento.outcome,
+    numeroDps: detalhe.numeroDps,
+    numeroNfse: detalhe.numeroNfse,
+    chave: detalhe.chave,
+    situacao: detalhe.situacao,
+    confirmadoPor: origem,
+    ultimoResultado: JSON.stringify(detalhe),
+  });
+  return `aplicado: NFS-e ${nfse.id} ${detalhe.situacao} (${evento.status}${evento.outcome ? '/' + evento.outcome : ''})`;
 }
 
 /**
@@ -124,13 +156,14 @@ export type ResumoPuxada = { desde: number; ate: number; paginas: number; recebi
  * `nextCursor`. `since` é exclusivo: o cursor guardado é o último `seq` aplicado, e a próxima leitura
  * começa no seguinte. Buracos no `seq` são normais (é cursor opaco, não contador).
  */
-export async function puxarFeed(aplicador: Aplicador, limitePaginas = 10): Promise<ResumoPuxada> {
+export async function puxarFeed(aplicador: Aplicador, familia: 'nfe' | 'nfse' = 'nfe', limitePaginas = 10): Promise<ResumoPuxada> {
   const { banco, cliente, operacional } = aplicador;
-  const desde = banco.configuracao().cursorFeed;
+  // Cada família tem o seu feed e o seu cursor: os dois dividem o `seq`, e um cursor só pularia eventos do outro.
+  const desde = familia === 'nfe' ? banco.configuracao().cursorFeed : banco.configuracao().cursorFeedNfse;
   const resumo: ResumoPuxada = { desde, ate: desde, paginas: 0, recebidos: 0, efeitos: [] };
 
   for (let pagina = 0; pagina < limitePaginas; pagina++) {
-    const { corpo } = await cliente.lerFeed(operacional, resumo.ate);
+    const { corpo } = familia === 'nfe' ? await cliente.lerFeed(operacional, resumo.ate) : await cliente.lerFeedNfse(operacional, resumo.ate);
     resumo.paginas++;
     if (corpo.events.length === 0) break;
     for (const evento of corpo.events) {
@@ -138,7 +171,8 @@ export async function puxarFeed(aplicador: Aplicador, limitePaginas = 10): Promi
       resumo.efeitos.push(`seq ${evento.seq} · ${evento.type} ${evento.status}${evento.outcome ? '/' + evento.outcome : ''} → ${await aplicarEvento(aplicador, evento, 'feed')}`);
     }
     // Só agora, com a página aplicada, o cursor avança.
-    banco.gravarCursorFeed(corpo.nextCursor);
+    if (familia === 'nfe') banco.gravarCursorFeed(corpo.nextCursor);
+    else banco.gravarCursorFeedNfse(corpo.nextCursor);
     resumo.ate = corpo.nextCursor;
   }
   return resumo;
