@@ -28,7 +28,15 @@ export type PedidoNfse = {
  */
 export const exigePercentualSimples = (crt: number): boolean => crt === 1 || crt === 2;
 
-export const ehCpf = (documento: string): boolean => /^\d{11}$/.test(documento);
+/**
+ * O E0063 recusa a substituta que muda a competência, o valor ou o tomador da original quando o prestador era ME/EPP na
+ * original e, na competência da substituta, continua ME/EPP ou passa a MEI. Pelo CRT de hoje, a substituta de um ME/EPP
+ * (CRT 1 e 2) ou de um MEI (CRT 4) pode cair nele; a do Regime Normal (CRT 3) não. O regime da ORIGINAL a tela não sabe:
+ * por isso o aviso é condicional, e quem decide é quem conhece o histórico do prestador.
+ */
+export const podeSofrerE0063 = (crt: number): boolean => crt === 1 || crt === 2 || crt === 4;
+
+export const ehCpf =(documento: string): boolean => /^\d{11}$/.test(documento);
 /** CNPJ alfanumérico: as 12 primeiras posições podem ser letras, as 2 últimas são dígitos. */
 export const ehCnpj = (documento: string): boolean => /^[0-9A-Z]{12}\d{2}$/.test(documento);
 

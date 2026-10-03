@@ -31,7 +31,7 @@ function reiniciar({ form, banco }: Contexto): Resultado {
   return {
     ok: true,
     titulo: 'Banco local recomeçado do zero',
-    detalhe: `Emitente, credencial, notas, operações, eventos e cadastros locais apagados; produtos e destinatário de exemplo semeados de novo. Nada foi chamado na API: o que existe na plataforma continua lá.${perdidos ? ` Foi-se ${perdidos}: a API os mostra uma vez só. Para voltar, vincule uma credencial na tela Emitente ou cunhe outra no painel.` : ''}`,
+    detalhe: `Emitente, credencial, notas, NFS-e, operações, eventos, cursores dos feeds e cadastros locais apagados; produtos e destinatário de exemplo semeados de novo. Nada foi chamado na API: o que existe na plataforma continua lá.${perdidos ? ` Foi-se ${perdidos}: a API os mostra uma vez só. Para voltar, vincule uma credencial na tela Emitente ou cunhe outra no painel.` : ''}`,
   };
 }
 
@@ -77,7 +77,8 @@ ${resultado(contexto)}
     <p><b>Emitente</b><br>${cfg.emitenteId ?? 'ainda não cadastrado'}</p>
     <p><b>Credencial operacional</b><br>${cfg.credencialClientId ? html`<code>${cfg.credencialClientId}</code> : <code>${mascarar(cfg.credencialSecret ?? '')}</code>` : 'ainda não cunhada'}</p>
     <p><b>Segredo do webhook</b><br>${cfg.webhookSecret ? mascarar(cfg.webhookSecret) : 'nenhum'}</p>
-    <p><b>Cursor do feed</b><br>${cfg.cursorFeed}</p>
+    <p><b>Cursor do feed da NF-e</b><br>${cfg.cursorFeed}</p>
+    <p><b>Cursor do feed da NFS-e</b><br>${cfg.cursorFeedNfse}</p>
   </div>
   <p>Tudo isto fica em claro no arquivo do banco. Não o commite.</p>
 </section>
@@ -90,7 +91,7 @@ ${blocoRecomecar(Boolean(cfg.emitenteId || cfg.credencialClientId))}`;
 function blocoRecomecar(temEstado: boolean): Html {
   return html`<section>
   <h2>Recomeçar do zero</h2>
-  <p>Apaga o banco local inteiro — emitente, credencial operacional, segredo do webhook, cursor do feed, notas, operações, eventos, produtos e destinatários — e semeia os dados de exemplo outra vez. É o que fazer para <b>trocar de emitente</b> sem misturar as notas de um com as do outro.</p>
+  <p>Apaga o banco local inteiro — emitente, credencial operacional, segredo do webhook, cursores dos dois feeds, notas, NFS-e, operações, eventos, produtos e destinatários — e semeia os dados de exemplo outra vez. É o que fazer para <b>trocar de emitente</b> sem misturar as notas de um com as do outro.</p>
   <p><b>Não chama a API.</b> O emitente continua cadastrado, as notas emitidas continuam autorizadas e a credencial continua válida na plataforma. ${
     temEstado
       ? html`O que se perde é local e irrecuperável: os <code>secret</code> da credencial operacional e do webhook, que a API mostra <b>uma única vez</b>. Anote-os antes, ou cunhe outros no painel depois.`

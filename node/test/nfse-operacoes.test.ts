@@ -129,6 +129,13 @@ test('cancelamento: chave e corpo gravados antes; a NFS-e segue autorizada até 
   try {
     const nfse = await emitirAutorizada(c);
     c.api.modoOperacoes = 'assincrono';
+    // O que o banco local tinha NO MOMENTO em que o cancelamento chegou à API: igualdade depois da chamada não prova a ordem.
+    const naChamada: { chave: string | null; corpo: string | null; commandId: string | null }[] = [];
+    c.api.aoReceber = (q) => {
+      if (q.metodo !== 'POST' || !q.caminho.endsWith('/cancelamento')) return;
+      const [op] = c.banco.listarOperacoesNfse(nfse.id);
+      naChamada.push({ chave: op?.idempotencyKey ?? null, corpo: op?.corpoEnviado ?? null, commandId: op?.commandId ?? null });
+    };
 
     const r = await c.post(`/nfse/${nfse.id}/cancelar`, { codigo_justificativa: '2', justificativa: JUSTIFICATIVA });
     assert.match(r.texto, /HTTP 202: cancelamento aceito; o comando NOVO .* está pending/);
@@ -137,6 +144,11 @@ test('cancelamento: chave e corpo gravados antes; a NFS-e segue autorizada até 
     assert.equal(envio.cabecalhos['idempotency-key'], operacao.idempotencyKey, 'a chave gravada é a que foi para o header');
     assert.deepEqual(envio.corpo, { codigoJustificativa: '2', justificativa: JUSTIFICATIVA });
     assert.deepEqual(JSON.parse(operacao.corpoEnviado!), envio.corpo);
+    // Gravados ANTES: quando a chamada chegou, a operação já estava lá com a chave e o corpo, e ainda sem o comando que o aceite devolve.
+    assert.equal(naChamada.length, 1);
+    assert.equal(naChamada[0].chave, operacao.idempotencyKey);
+    assert.deepEqual(JSON.parse(naChamada[0].corpo!), envio.corpo);
+    assert.equal(naChamada[0].commandId, null);
     assert.equal(envio.clientId, c.banco.configuracao().credencialClientId);
 
     // O comando é NOVO: o `id` do aceite não é o da NFS-e, e a NFS-e segue autorizada.
@@ -227,6 +239,9 @@ test('substituição: a substituta leva o id da original; a original só vira su
     // A substituída ainda tem DANFSe, com a marca dela; mas não se cancela nem se substitui de novo.
     assert.match(await (await fetch(`${c.base}/nfse/${original.id}/danfse`)).text(), /substituida/);
     assert.match((await c.post(`/nfse/${original.id}/cancelar`, { codigo_justificativa: '2', justificativa: JUSTIFICATIVA })).texto, /a NFS-e \d+ está substituida; só a autorizada cancela/);
+    const intakes = c.api.requisicoes.filter((q) => q.metodo === 'POST' && q.caminho.startsWith('/v1/nfse?')).length;
+    assert.match((await c.post(`/nfse/${original.id}/substituir`, { ...pedidoNfse(), codigo_justificativa: '01', justificativa: '' })).texto, /a NFS-e \d+ está substituida; só a autorizada se substitui/);
+    assert.equal(c.api.requisicoes.filter((q) => q.metodo === 'POST' && q.caminho.startsWith('/v1/nfse?')).length, intakes, 'recusada na tela: nenhuma emissão nova sai');
   } finally {
     await c.encerrar();
   }
@@ -267,8 +282,10 @@ test('substituição: recusada na tela fora da autorizada, com código inválido
   }
 });
 
-test('o aviso do E0063 só aparece para o ME/EPP: os outros regimes podem mudar competência, valor e tomador', async () => {
-  for (const [crt, aparece] of [['1', true], ['2', true], ['3', false], ['4', false]] as const) {
+test('o aviso do E0063 aparece quando a substituta é de ME/EPP ou de MEI, e não no Regime Normal', async () => {
+  // O E0063 vale se o prestador era ME/EPP na original e, na competência da substituta, continua ME/EPP ou passa a MEI.
+  // Pelo CRT de hoje, é a substituta dos CRT 1, 2 e 4 que pode cair nele; a do CRT 3 não. O regime da original a tela não sabe.
+  for (const [crt, aparece] of [['1', true], ['2', true], ['3', false], ['4', true]] as const) {
     const c = await subir();
     try {
       await ateSerieDps(c, { ...EMITENTE_NFSE, crt });
@@ -276,6 +293,7 @@ test('o aviso do E0063 só aparece para o ME/EPP: os outros regimes podem mudar 
       const [nfse] = c.banco.listarNfses();
       const detalhe = await c.get(`/nfse/${nfse.id}`);
       assert.equal(/E0063/.test(detalhe.texto), aparece, `CRT ${crt}`);
+      if (aparece) assert.match(detalhe.texto, /O regime da original a tela não sabe, e por isso o aviso é condicional/);
     } finally {
       await c.encerrar();
     }

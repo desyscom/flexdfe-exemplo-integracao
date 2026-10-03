@@ -15,11 +15,11 @@
 // A NFS-e pede três coisas a mais, numa seção à parte no fim da tela, e cada uma tem o seu lugar na ordem:
 //
 //   A. Inscrição municipal   PATCH /v1/emitentes/{id}                       gestão  → no cadastro (passo 1) ou depois
-//   B. Convênio              POST /v1/emitentes/{id}/consultas-convenio     gestão  → entre o certificado e a ativação
+//   B. Convênio              POST /v1/emitentes/{id}/consultas-convenio     gestão, depois operacional → entre o certificado e a ativação
 //   C. Série de DPS          POST /v1/series  { "tipoDocumento": "dps" }    operacional → o próprio passo 5
 //
 // O convênio só é leitura e não bloqueia emissão nenhuma. Antes da ativação ele vai com a credencial de gestão,
-// porque a do emitente só autentica depois dela.
+// porque a do emitente só autentica depois dela; depois da ativação, com a operacional.
 //
 // Os passos 1 a 4 são o ONBOARDING de um emitente novo, e existem porque um integrador precisa
 // fazê-lo pela API. Quem já tem o emitente pronto no painel — cadastrado, com certificado, ativo e
@@ -231,7 +231,7 @@ async function gravarInscricaoMunicipal({ form, config, banco, cliente }: Contex
     const { corpo } = await cliente.editarEmitente(config.gestao, emitenteId, { inscricao_municipal: valor || null });
     return valor
       ? { ok: true, titulo: 'Inscrição municipal gravada', detalhe: 'A API tirou o espaço e a pontuação antes de gravar: a ficha mostra a que ela guardou.', corpo: { inscricao_municipal: corpo.inscricao_municipal } }
-      : { ok: true, titulo: 'Inscrição municipal removida', detalhe: 'Sem ela, a SEFIN recusa a DPS do prestador que não é MEI. Quem só emite NF-e não precisa dela.', corpo: { inscricao_municipal: corpo.inscricao_municipal } };
+      : { ok: true, titulo: 'Inscrição municipal removida', detalhe: 'Quem só emite NF-e não precisa dela. Para a DPS, a SEFIN recusa a IM ausente (E0116, que dispensa o MEI), e a obrigatoriedade depende do município.', corpo: { inscricao_municipal: corpo.inscricao_municipal } };
   } catch (erro) {
     return resultadoDeErro('Inscrição municipal recusada', erro);
   }
@@ -239,8 +239,10 @@ async function gravarInscricaoMunicipal({ form, config, banco, cliente }: Contex
 
 /**
  * Pergunta ao ADN o que o município publicou. A resposta diz se a parametrização veio, e não se o município
- * aderiu ao Sistema Nacional; e a consulta não bloqueia emissão nenhuma. Vai com a credencial de gestão: é leitura,
- * e antes da ativação a credencial do emitente não autentica.
+ * aderiu ao Sistema Nacional; e a consulta não bloqueia emissão nenhuma. É leitura, e a rota aceita tanto a
+ * credencial de integrador quanto a de emitente. Antes da ativação só existe a de gestão, porque a do emitente só
+ * autentica depois dela; depois, vai com a operacional, que alcança o emitente mesmo fora da carteira da de gestão
+ * (um emitente vinculado pelo atalho), como a leitura da ficha.
  */
 async function consultarConvenio({ form, config, banco, cliente }: Contexto): Promise<Resultado> {
   const { emitenteId } = banco.configuracao();
@@ -248,15 +250,17 @@ async function consultarConvenio({ form, config, banco, cliente }: Contexto): Pr
   const codigo = form.get('codigo_municipio')?.trim() ?? '';
   if (!/^\d{7}$/.test(codigo)) return { ok: false, titulo: 'Código do município: sete dígitos do IBGE, sem separador' };
   try {
-    const { corpo } = await cliente.consultarConvenio(config.gestao, emitenteId, codigo);
+    const { corpo } = await cliente.consultarConvenio(credencialOperacional(banco) ?? config.gestao, emitenteId, codigo);
     const comum = 'O veredito diz se a parametrização veio, não se o município aderiu ao Sistema Nacional, e a consulta não bloqueia a emissão: a plataforma não recusa nenhuma por causa dela. Convênio inativo ou não parametrizado só aparece como rejeição de uma DPS real (E0038, E0039).';
     const ausencia = corpo.veredito === 'sem-parametrizacao' ? ' Aqui o ADN respondeu em definitivo e o grupo de parâmetros não veio. Nenhum dos dois vereditos quer dizer "o município está fora".' : '';
     return { ok: true, titulo: `Convênio consultado: ${corpo.veredito}`, detalhe: comum + ausencia, corpo };
   } catch (erro) {
     const r = resultadoDeErro('Consulta de convênio recusada', erro);
-    // O ADN fora do ar não é negativa: 503 e 504 pedem outra tentativa, e o retry se programa pelo status, nunca pela mensagem.
+    // Indisponibilidade não é negativa: o 503 é o ADN sem resposta, e o 504, a consulta que não concluiu na janela. Os dois
+    // pedem outra tentativa, e o retry se programa pelo status, nunca pela mensagem.
     if (r && erro instanceof ErroApi && (erro.status === 503 || erro.status === 504)) {
-      return { ...r, detalhe: `${r.detalhe} Indisponibilidade não é negativa: o ADN não respondeu: repita; isto não é a resposta "o município não tem convênio". Repetir é inofensivo, porque a consulta não cria nada.` };
+      const causa = erro.status === 503 ? 'o ADN não respondeu' : 'a consulta não concluiu dentro da janela';
+      return { ...r, detalhe: `${r.detalhe} Indisponibilidade não é negativa: ${causa}: repita; isto não é a resposta "o município não tem convênio". Repetir é inofensivo, porque a consulta não cria nada.` };
     }
     return r;
   }
@@ -379,13 +383,13 @@ ${passo(6, 'Webhook (opcional)', 'PUT /v1/emitentes/{id}/webhook  { "url", "ativ
 
 ${passo('A', 'Inscrição municipal', 'PATCH /v1/emitentes/{id}  { "inscricao_municipal" }', 'de gestão', Boolean(emitente?.inscricao_municipal), !emitente
   ? bloqueado('cadastre o emitente')
-  : html`<p>A IM do cadastro vai no <code>prest.im</code> de toda DPS, e a que vale é a do <b>CNC NFS-e</b>, que o Emissor Nacional mostra como "Indicador Municipal": pode não ser a do cartão nem a do alvará. A SEFIN recusa a DPS com a IM ausente ou errada (E0116, que dispensa o MEI) e com a IM que o CNC não registra para o CNPJ no município (E0120). Quem só emite NF-e não precisa dela.</p>
+  : html`<p>A IM do cadastro vai no <code>prest.im</code> de toda DPS, e a que vale é a do <b>CNC NFS-e</b>, que o Emissor Nacional mostra como "Indicador Municipal": pode não ser a do cartão nem a do alvará. A SEFIN recusa a DPS com a IM ausente ou errada (E0116, que dispensa o MEI) e com a IM que o CNC não registra para o CNPJ no município (E0120). Se o município exige a IM ou a proíbe depende dele, e nenhuma consulta de convênio responde isso. Quem só emite NF-e não precisa dela.</p>
 <form method="post" action="/emitente/inscricao-municipal"><label>Inscrição municipal <input name="inscricao_municipal" value="${emitente.inscricao_municipal ?? ''}"></label><button>${emitente.inscricao_municipal ? 'Atualizar' : 'Gravar'} inscrição municipal</button></form>
 <p>Vazio limpa a IM. A API tira o espaço e a pontuação antes de gravar, e a ficha acima mostra a que ela guardou.</p>`)}
 
 ${passo('B', 'Consultar o convênio do município (opcional)', 'POST /v1/emitentes/{id}/consultas-convenio  { "codigoMunicipio" }', 'de gestão', false, !emitente
   ? bloqueado('cadastre o emitente')
-  : html`<p>Pergunta ao Ambiente de Dados Nacional (ADN) que parâmetros de convênio o município publicou. É por código de município, e qualquer um serve, não só o do emitente; a resposta vem no corpo, sem comando a acompanhar. O certificado do emitente abre o mTLS com o ADN, e sem ele a consulta é recusada com 422. Pode ser feita antes da ativação, porque vai com a credencial de gestão, e a do emitente só autentica depois dela.</p>
+  : html`<p>Pergunta ao Ambiente de Dados Nacional (ADN) que parâmetros de convênio o município publicou. É por código de município, e qualquer um serve, não só o do emitente; a resposta vem no corpo, sem comando a acompanhar. O certificado do emitente abre o mTLS com o ADN, e sem ele a consulta é recusada com 422. Pode ser feita antes da ativação, porque antes dela só existe a credencial de gestão, e a do emitente só autentica depois dela; depois, vai com a operacional.</p>
 <p><b>Não bloqueia a emissão</b>, e o veredito não diz se o município aderiu ao Sistema Nacional: diz se a parametrização veio.</p>
 <form method="post" action="/emitente/convenio"><label>Código do município (IBGE, 7 dígitos) <input name="codigo_municipio" placeholder="4106902" size="9" maxlength="7" value="${cfg.codMunicipio ?? ''}"></label><button>Consultar convênio</button></form>`)}`;
 

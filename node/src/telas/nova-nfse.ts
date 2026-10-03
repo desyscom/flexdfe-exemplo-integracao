@@ -8,8 +8,10 @@
 // continua no banco com a mesma chave, e reenviar é replay, não uma segunda DPS. A resposta da emissão grava o `id`
 // e o status inicial, e o desfecho quando o `wait` o traz; é o feed (tela Eventos) que o confirma.
 //
-// O que a tela não pede: o prestador, o `dhEmi`, a série, o número e o ambiente são da plataforma, e o que vier
-// deles no `documento` é ignorado. Em série managed o `numeroDps` não vai.
+// O que o `documento` não leva: o prestador, o `dhEmi`, a série, o número e o ambiente são da plataforma, e o que vier
+// deles dentro do `documento` é ignorado. A série de DPS vai no envelope, ao lado do `documento`, e é a única coisa
+// destas que a tela pede; em série managed o `numeroDps` não vai. O regime do prestador deriva do CRT do cadastro,
+// porque a tela não manda `prest.regTrib`, que prevaleceria sobre ele campo a campo.
 //
 // A leitura e a conferência do formulário (`montarCorpoNfse`) e os campos dele (`camposNfse`) são exportados porque a
 // substituição, no detalhe da NFS-e, é uma emissão com o mesmo documento e mais o pedido de substituição.
@@ -29,14 +31,33 @@ export const acoesNovaNfse: Record<string, Rota> = {
   emitir: async (ctx) => renderizar(ctx, await emitir(ctx)),
 };
 
-/** `1.500,00` e `1500,5` são reais; `1500.5` é um número com ponto decimal. A vírgula é o que diz qual dos dois chegou. */
-const numeroBr = (texto: string): number => (texto.includes(',') ? Number(texto.replaceAll('.', '').replace(',', '.')) : Number(texto));
+/**
+ * `1.500,00` e `1500,5` são reais, e `1500.5` é um número com ponto decimal: a vírgula diz qual dos dois chegou. Sem
+ * vírgula, o ponto seguido de exatamente três dígitos é separador de milhar (`1.500` é mil e quinhentos, e não um
+ * real e meio), porque é como quem digita em português o escreve.
+ */
+export function numeroBr(texto: string): number {
+  if (texto.includes(',')) return Number(texto.replaceAll('.', '').replace(',', '.'));
+  return /^\d{1,3}(\.\d{3})+$/.test(texto) ? Number(texto.replaceAll('.', '')) : Number(texto);
+}
+
+/** A data de hoje em Brasília, `AAAA-MM-DD`: é a da `dhEmi`, contra a qual a competência não pode ser futura. */
+const hojeEmBrasilia = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+/** `AAAA-MM-DD` de um dia que existe no calendário: `2026-02-30` passa no `Date.parse`, que o empurra para março. */
+function dataExiste(texto: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(texto);
+  if (!m) return false;
+  const [ano, mes, dia] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const d = new Date(Date.UTC(ano, mes - 1, dia));
+  return d.getUTCFullYear() === ano && d.getUTCMonth() === mes - 1 && d.getUTCDate() === dia;
+}
 
 const recusa = (titulo: string, detalhe?: string): { recusa: Resultado } => ({ recusa: { ok: false, titulo, detalhe } });
 
 /**
- * O pedido, lido do formulário e conferido antes de qualquer chamada: a API diria o mesmo, com 422 ou com a rejeição, e
- * conferir antes é mais barato. Devolve o corpo do `POST /v1/nfse`, ou o resultado com o que está errado.
+ * O pedido, lido do formulário e conferido antes de chamar a emissão: a API diria o mesmo, com 422 ou com a rejeição, e
+ * conferir antes é mais barato. A única chamada que sai antes é a leitura do emitente, para saber o CRT. Devolve o corpo do `POST /v1/nfse`, ou o resultado com o que está errado.
  */
 export async function montarCorpoNfse({ form, cliente }: Contexto, operacional: Credencial, emitenteId: string): Promise<{ corpo: IntakeNfse } | { recusa: Resultado }> {
   const campo = (nome: string) => form.get(nome)?.trim() ?? '';
@@ -49,7 +70,8 @@ export async function montarCorpoNfse({ form, cliente }: Contexto, operacional: 
   if (!tomadorNome) return recusa('Tomador: informe o nome ou a razão social');
 
   const competencia = campo('dcompet');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(competencia) || Number.isNaN(Date.parse(competencia))) return recusa('Competência: AAAA-MM-DD', 'É por ela que o ISSQN se apura.');
+  if (!dataExiste(competencia)) return recusa('Competência: AAAA-MM-DD, um dia que exista', 'É por ela que o ISSQN se apura.');
+  if (competencia > hojeEmBrasilia()) return recusa('Competência: não pode ser posterior à data de emissão', 'A regra é da DPS (a competência não pode passar da data de emissão, que é a de hoje em Brasília), e a SEFIN a compara com a data dela.');
   const municipioPrestacao = campo('clocprestacao');
   if (!/^\d{7}$/.test(municipioPrestacao)) return recusa('Município da prestação: sete dígitos do IBGE, sem separador');
   const codigoTributacaoNacional = campo('ctribnac');
@@ -70,7 +92,7 @@ export async function montarCorpoNfse({ form, cliente }: Contexto, operacional: 
   let percentualSimples: number | null = null;
   if (exigePercentualSimples(emitente.crt)) {
     percentualSimples = campo('ptottribsn') === '' ? NaN : numeroBr(campo('ptottribsn'));
-    if (!(percentualSimples >= 0 && percentualSimples <= 100)) return recusa('Percentual do Simples (pTotTribSN): um número de 0 a 100', `Com o CRT ${emitente.crt} o emitente é ME/EPP, e a SEFIN exige o percentual no totTrib.`);
+    if (!(percentualSimples >= 0 && percentualSimples <= 100)) return recusa('Percentual do Simples (pTotTribSN): um número de 0 a 100', `Com o CRT ${emitente.crt} o emitente é ME/EPP, e o ramo indTotTrib lhe é vedado (E0712): esta tela manda o percentual do Simples, o pTotTribSN.`);
   }
 
   return { corpo: { serie, documento: montarDps({ competencia, tomadorDocumento, tomadorNome, municipioPrestacao, codigoTributacaoNacional, descricaoServico, valorServico, percentualSimples }, emitente.crt) } };
@@ -155,7 +177,8 @@ async function renderizar(ctx: Contexto, ultimo: Resultado): Promise<Resposta> {
   const mePequena = emitente ? exigePercentualSimples(emitente.crt) : false;
   const padrao: ValoresNfse = {
     serie: '1',
-    dcompet: new Date().toISOString().slice(0, 8) + '01',
+    // O primeiro dia do mês de hoje em Brasília: em UTC, depois das 21h do último dia do mês viraria o mês seguinte, futuro.
+    dcompet: hojeEmBrasilia().slice(0, 8) + '01',
     clocprestacao: cfg.codMunicipio ?? '',
     toma_documento: '11.444.777/0001-61',
     toma_nome: 'Cliente Exemplo Ltda',
@@ -167,7 +190,7 @@ async function renderizar(ctx: Contexto, ultimo: Resultado): Promise<Resposta> {
 
   const corpo = html`
 <h1>Nova NFS-e</h1>
-<p>Monta o <code>documento</code> da DPS, gera a <code>Idempotency-Key</code>, grava a NFS-e como pendente e só então chama <span class="rota">POST /v1/nfse?wait=${WAIT_MS}</span> com a credencial <b>operacional</b>. O prestador, o <code>dhEmi</code>, a série, o número e o ambiente são da plataforma: o que vier deles no documento é ignorado, então a tela nem os pede.</p>
+<p>Monta o <code>documento</code> da DPS, gera a <code>Idempotency-Key</code>, grava a NFS-e como pendente e só então chama <span class="rota">POST /v1/nfse?wait=${WAIT_MS}</span> com a credencial <b>operacional</b>. O prestador, o <code>dhEmi</code>, a série, o número e o ambiente são da plataforma: o que vier deles dentro do documento é ignorado, então o documento não os leva. A série de DPS vai no envelope, ao lado do documento.</p>
 ${resultado(ultimo)}
 ${!operacional || !emitente ? html`<section class="erro"><h2>Antes, complete a tela Emitente</h2><p>A emissão exige a credencial operacional, uma série de DPS e, para escolher o ramo do <code>totTrib</code>, o CRT do emitente. A inscrição municipal do cadastro tem de ser a do CNC NFS-e.</p></section>` : vazio}
 ${emitente ? html`<section><h2>O totTrib pelo CRT do emitente</h2><p>CRT ${emitente.crt}: ${mePequena

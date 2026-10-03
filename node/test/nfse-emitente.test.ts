@@ -30,8 +30,9 @@ test('a inscrição municipal se informa e se limpa depois do cadastro, pela cre
     await c.post('/emitente/cadastrar', { ...EMITENTE_NFSE, inscricao_municipal: '' });
     let tela = await c.get('/emitente');
     assert.match(tela.texto, /IM não informada/);
-    // Quem só emite NF-e vive sem ela; a DPS, não.
+    // Quem só emite NF-e vive sem ela. Para a DPS, a SEFIN recusa a IM ausente ou errada, e se o município a exige depende dele.
     assert.match(tela.texto, /A SEFIN recusa a DPS com a IM ausente ou errada \(E0116, que dispensa o MEI\)/);
+    assert.match(tela.texto, /nenhuma consulta de convênio responde isso/);
 
     const gravada = await c.post('/emitente/inscricao-municipal', { inscricao_municipal: ' 98.765-4 ' });
     assert.match(gravada.html, /Inscrição municipal gravada/);
@@ -76,6 +77,60 @@ test('convênio: sai pela credencial de gestão, antes da ativação, e a tela n
     assert.match(r.texto, /E0039/);
     // O emitente segue rascunho: a consulta não pede a ativação.
     assert.match((await c.get('/emitente')).texto, /inativo \(rascunho\)/);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('convênio: depois da ativação vai pela credencial operacional, que alcança o emitente mesmo fora da carteira de gestão', async () => {
+  const c = await subir();
+  try {
+    await c.post('/emitente/cadastrar', EMITENTE_NFSE);
+    await c.post('/emitente/certificado');
+    await c.post('/emitente/ativar');
+    await c.post('/emitente/credencial');
+
+    assert.match((await c.post('/emitente/convenio', { codigo_municipio: '4106902' })).texto, /Convênio consultado: parametrizado/);
+    const consulta = envio(c, 'POST', /\/consultas-convenio$/);
+    assert.equal(consulta.clientId, c.banco.configuracao().credencialClientId, 'a rota aceita a de emitente, e a de gestão do .env pode nem enxergar um emitente vinculado');
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('a credencial de um emitente inativo não autentica: o 403 vem sem type, e nada é guardado', async () => {
+  const c = await subir();
+  try {
+    // O emitente nasce rascunho. A credencial dele existe (foi cunhada no painel), mas só autentica depois da ativação.
+    await c.post('/emitente/cadastrar', EMITENTE_NFSE);
+    const emitenteId = c.banco.configuracao().emitenteId!;
+    c.api.credenciais.push({ clientId: 'op-rascunho', secret: 'segredo', escopo: 'emitente', emitenteId });
+    c.banco.db.exec('UPDATE configuracao SET emitente_id = NULL');
+
+    const r = await c.post('/emitente/vincular', { client_id: 'op-rascunho', secret: 'segredo' });
+    assert.match(r.texto, /A API não aceitou a credencial: HTTP 403/);
+    assert.match(r.texto, /sem type: é a autenticação falando/);
+    assert.match(r.texto, /emitente inativo/);
+    assert.equal(c.banco.configuracao().credencialClientId, null);
+    assert.equal(c.banco.configuracao().emitenteId, null);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('convênio: a consulta que não concluiu na janela é 504, e se repete como o 503', async () => {
+  const c = await subir();
+  try {
+    await c.post('/emitente/cadastrar', EMITENTE_NFSE);
+    await c.post('/emitente/certificado');
+    c.api.convenio.lenta = true;
+
+    const r = await c.post('/emitente/convenio', { codigo_municipio: '4106902' });
+    assert.match(r.texto, /Consulta de convênio recusada: HTTP 504/);
+    assert.match(r.texto, /type = municipal-agreement-lookup-unavailable/);
+    // O 504 não é o ADN sem resposta: é a consulta que não concluiu dentro da janela. Os dois se repetem.
+    assert.match(r.texto, /Indisponibilidade não é negativa: a consulta não concluiu dentro da janela: repita/);
+    assert.doesNotMatch(r.texto, /o ADN não respondeu/);
   } finally {
     await c.encerrar();
   }

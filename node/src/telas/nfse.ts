@@ -5,6 +5,7 @@
 //   POST /v1/nfse?wait=                 operacional  reenviar (mesma Idempotency-Key, mesmo corpo: replay)
 //                                                    substituir (outra emissão, com `substituicao` no corpo)
 //   GET  /v1/nfse/{id}                  operacional  a ficha: situação, DPS, NFS-e e o resumo
+//   GET  /v1/emitentes/{id}             operacional  o CRT, que decide se o aviso do E0063 se aplica à substituta
 //   GET  /v1/nfse/{id}/xml              operacional  depois da autorizada; antes é 409 nfse-xml-unavailable
 //   GET  /v1/nfse/{id}/danfse           operacional  autorizada, cancelada e substituída; antes é 409 nfse-danfse-unavailable
 //   POST /v1/nfse/{id}/consulta         operacional  pede a verdade à SEFIN; o resultado vem ao reler a NFS-e
@@ -24,7 +25,7 @@ import type { AceiteComando, DetalheNfse, Emitente } from '../cliente-api.ts';
 import type { Contexto, Resposta, Rota } from '../app.ts';
 import { bruto, dinheiro, html, pagina, resultado, resultadoDeErro, vazio, type Html, type Resultado } from '../html.ts';
 import { ehTerminal, situacaoOperacao } from '../eventos.ts';
-import { exigePercentualSimples } from '../documento-nfse.ts';
+import { exigePercentualSimples, podeSofrerE0063 } from '../documento-nfse.ts';
 import { LIMITES, motivoTextoInvalido } from '../texto-sefaz.ts';
 import { camposNfse, montarCorpoNfse, valoresDoCorpo } from './nova-nfse.ts';
 import { WAIT_MS } from './nova-nota.ts';
@@ -219,7 +220,7 @@ async function substituir(ctx: Contexto): Promise<Resultado> {
   const { emitenteId } = banco.configuracao();
   if (!emitenteId) return { ok: false, titulo: 'Substituir exige o emitente cadastrado' };
 
-  if (!permiteSubstituirNfse(nfse)) return { ok: false, titulo: `Substituição recusada na tela: a NFS-e ${nfse.id} está ${situacaoLocalNfse(nfse)}; só a autorizada se substitui`, detalhe: 'A API responderia 409 nfse-not-substitutable. A substituta também tem de ser do mesmo ambiente da original.' };
+  if (!permiteSubstituirNfse(nfse)) return { ok: false, titulo: `Substituição recusada na tela: a NFS-e ${nfse.id} está ${situacaoLocalNfse(nfse)}; só a autorizada se substitui`, detalhe: 'A API responderia 409 nfse-not-substitutable. A original também tem de ter sido emitida no ambiente atual do emitente.' };
   const codigo = form.get('codigo_justificativa') ?? '';
   if (!CODIGOS_SUBSTITUICAO.some(([c]) => c === codigo)) return { ok: false, titulo: 'Código da substituição: 01, 02, 03, 04, 05 ou 99', detalhe: 'A API responderia 422 cancellation-reason-invalid.' };
   // A justificativa é opcional, salvo com o 99; quando vai, obedece ao envelope da SEFAZ.
@@ -384,7 +385,7 @@ ${resultado(erroLeitura)}
   <h2>Substituir <span class="rota">POST /v1/nfse</span> com <code>substituicao</code></h2>
   ${permiteSubstituirNfse(nfse)
     ? html`<p>É uma emissão nova, com o mesmo documento e o pedido de substituição: a SEFIN gera a substituta e cancela a original no mesmo envio. O pedido leva o <code>id</code> desta NFS-e, o que a plataforma devolveu no aceite dela, e o motivo. A original só vira substituída quando a substituta é autorizada, e o feed (tela Eventos) é quem avisa. A substituta conta na franquia como qualquer emissão.</p>
-  ${emitente && exigePercentualSimples(emitente.crt) ? html`<p><b>ME/EPP:</b> se o prestador era ME/EPP na original e continua ME/EPP, ou passa a MEI, na competência da substituta, a SEFIN recusa com E0063 a substituta que muda a competência, o valor do serviço ou o tomador identificado na original. A plataforma não confere isso antes do envio, e a substituta rejeitada também conta na franquia. O formulário vem preenchido com o que a original informou.</p>` : vazio}
+  ${emitente && podeSofrerE0063(emitente.crt) ? html`<p><b>ME/EPP e MEI:</b> se o prestador era ME/EPP na original e, na competência da substituta, continua ME/EPP ou passa a MEI, a SEFIN recusa com E0063 a substituta que muda a competência, o valor do serviço ou o tomador identificado na original. O regime da original a tela não sabe, e por isso o aviso é condicional. A plataforma não confere isso antes do envio, e a substituta rejeitada também conta na franquia. O formulário vem preenchido com o que a original informou.</p>` : vazio}
   <form method="post" action="/nfse/${nfse.id}/substituir">
     <div class="grid">
       <label>Código (<code>codigoJustificativa</code>)<br><select name="codigo_justificativa">${CODIGOS_SUBSTITUICAO.map(([c, nome]) => html`<option value="${c}">${c} · ${nome}</option>`)}</select></label>

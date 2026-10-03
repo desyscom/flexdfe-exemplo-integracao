@@ -111,7 +111,12 @@ export class ApiFalsa {
    * O que o ADN responde à consulta de convênio: `indisponivel` é o `503` (ele não respondeu), e os municípios em
    * `semParametrizacao` voltam `200` com o veredito `sem-parametrizacao`. Os demais voltam `parametrizado`.
    */
-  readonly convenio = { indisponivel: false, semParametrizacao: new Set<string>() };
+  readonly convenio = { indisponivel: false, lenta: false, semParametrizacao: new Set<string>() };
+  /**
+   * Chamado a cada requisição que chega, antes de ela ser tratada. É como um teste olha o estado da aplicação NO
+   * MOMENTO da chamada, e prova a ORDEM (a chave e o corpo gravados antes), que a igualdade depois dela não prova.
+   */
+  aoReceber: ((requisicao: Requisicao) => void) | null = null;
   /** A senha que "abre" o .pfx de teste, e o conteúdo cujo titular "bate" com o CNPJ. */
   senhaCerta = 'senha-certa';
   conteudoPfxDoTitular = 'PFX-DO-TITULAR';
@@ -295,7 +300,9 @@ export class ApiFalsa {
 
   private tratar(metodo: string, caminho: string, cabecalhos: IncomingHttpHeaders, corpo: unknown): RespostaFalsa {
     const cred = this.autenticar(cabecalhos.authorization);
-    this.requisicoes.push({ metodo, caminho, clientId: cred?.clientId ?? null, corpo, cabecalhos });
+    const requisicao: Requisicao = { metodo, caminho, clientId: cred?.clientId ?? null, corpo, cabecalhos };
+    this.requisicoes.push(requisicao);
+    this.aoReceber?.(requisicao);
 
     // A borda vem antes de tudo: 429 sem envelope, com Retry-After, antes mesmo de autenticar.
     if (this.limitar.vezes > 0 && (!this.limitar.caminho || this.limitar.caminho.test(caminho))) {
@@ -305,6 +312,10 @@ export class ApiFalsa {
 
     // Envelope de autenticação: { erro }, application/json, sem type.
     if (!cred) return json(401, { erro: 'credencial inválida' });
+    // A credencial de um emitente INATIVO não autentica: um emitente novo nasce rascunho, e só emite depois do certificado e da ativação.
+    if (cred.escopo === 'emitente' && this.emitentes.get(cred.emitenteId!)?.ativo === false) {
+      return json(403, { erro: 'emitente inativo: um emitente novo nasce rascunho; envie o certificado A1 e ative-o' });
+    }
 
     // O `title` é humano e muda sem aviso. Aqui ele muda a CADA resposta, de propósito: um cliente que
     // ramificasse por ele quebraria no teste, antes de quebrar em produção.
@@ -370,6 +381,7 @@ export class ApiFalsa {
         if (typeof codigo !== 'string' || !/^\d{7}$/.test(codigo)) return problema(422, 'invalid-request-body', 'codigoMunicipio deve ter sete dígitos (código do IBGE)');
         if (!e.certificado) return problema(422, 'invalid-request-body', 'o emitente não tem certificado: o ADN exige mTLS em todas as rotas');
         if (this.convenio.indisponivel) return problema(503, 'municipal-agreement-lookup-unavailable', 'o Ambiente de Dados Nacional não respondeu');
+        if (this.convenio.lenta) return problema(504, 'municipal-agreement-lookup-unavailable', 'a consulta não concluiu dentro da janela');
         const sem = this.convenio.semParametrizacao.has(codigo);
         return json(200, {
           id: randomUUID(),

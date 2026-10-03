@@ -41,7 +41,7 @@ async function renderizar({ banco, chamadas }: Contexto, ultimo: Resultado): Pro
   const eventos = banco.listarEventos();
   const corpo = html`
 <h1>Eventos</h1>
-<p>O feed é a fonte de verdade dos desfechos; o webhook é o aviso. Os dois entram pelo mesmo caminho (<code>aplicarEvento</code>), e é só por ele que o status local de uma nota ou de uma NFS-e muda depois da emissão.</p>
+<p>O feed é a fonte de verdade dos desfechos; o webhook é o aviso. Os dois entram pelo mesmo caminho (<code>aplicarEvento</code>), e é só por ele que um desfecho de uma nota ou de uma NFS-e passa a constar como confirmado depois da emissão. A resposta da emissão e a releitura da consulta também gravam o que leram, mas não confirmam nada: é o feed, com o webhook como aviso, quem o faz.</p>
 ${resultado(ultimo)}
 <section>
   <h2>Cursor guardado da NF-e: ${cfg.cursorFeed}</h2>
@@ -50,7 +50,7 @@ ${resultado(ultimo)}
 </section>
 <section>
   <h2>Cursor guardado da NFS-e: ${cfg.cursorFeedNfse}</h2>
-  <p><span class="rota">GET /v1/nfse/events?since=${cfg.cursorFeedNfse}</span> · O feed da NFS-e é o mesmo cursor, só com os comandos <code>nfse.*</code>. As duas famílias dividem a numeração do <code>seq</code>: cada feed enxerga como buracos os <code>seq</code> da outra, e por isso cada um tem o seu cursor, e um cursor só pularia eventos.</p>
+  <p><span class="rota">GET /v1/nfse/events?since=${cfg.cursorFeedNfse}</span> · O feed da NFS-e é o mesmo protocolo de cursor, só com os comandos <code>nfse.*</code>. As duas famílias dividem a numeração do <code>seq</code>: cada feed enxerga como buracos os <code>seq</code> da outra, e por isso cada um tem o seu cursor, e um cursor só pularia eventos.</p>
   <form method="post" action="/eventos/puxar-nfse"><button>Puxar o feed da NFS-e</button></form>
 </section>
 <section>

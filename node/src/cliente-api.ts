@@ -422,9 +422,10 @@ export function criarClienteApi(opcoes: Opcoes) {
      * NFS-e: pergunta ao Ambiente de Dados Nacional (ADN) que parâmetros de convênio um município publicou. É por
      * código de município (qualquer um serve, não só o do emitente) e síncrona: a resposta vem no corpo do `200`.
      * O certificado do emitente abre o mTLS com o ADN, daí a consulta pender de um emitente; sem ele é `422`.
-     * É leitura: não leva `Idempotency-Key` e não olha o `ativo` do emitente, então antes da ativação vai com a
-     * credencial de integrador (a do emitente só autentica depois dela). Não bloqueia emissão nenhuma. O ADN fora do ar
-     * é `503` ou `504`, e se repete: indisponibilidade não é negativa.
+     * É leitura: não leva `Idempotency-Key`, e a rota aceita a credencial de integrador e a de emitente. Antes da
+     * ativação só serve a de integrador (a do emitente só autentica depois dela). Não bloqueia emissão nenhuma.
+     * Indisponibilidade não é negativa: o ADN sem resposta é `503`, e a consulta que não concluiu na janela é `504`;
+     * os dois se repetem.
      */
     consultarConvenio: (cred: Credencial, emitenteId: string, codigoMunicipio: string) =>
       chamar<ConsultaConvenio>(cred, 'POST', `/v1/emitentes/${emitenteId}/consultas-convenio`, { codigoMunicipio }),
@@ -432,7 +433,7 @@ export function criarClienteApi(opcoes: Opcoes) {
     // ---- Operação: escopo de EMITENTE (credencial operacional). ----
 
     /**
-     * Série `managed`: a plataforma numera, e a emissão não manda `numero`. Uma por emitente, ambiente, modelo e
+     * Série `managed`: a plataforma numera, e a emissão não manda `numero`. Uma por emitente, ambiente, documento e
      * série. Sem `ambiente` no corpo, ela nasce no ambiente atual do emitente, que neste exemplo é homologação.
      */
     provisionarSerie: (cred: Credencial, documento: 55 | 65 | 'dps', serie: number) =>
@@ -464,7 +465,7 @@ export function criarClienteApi(opcoes: Opcoes) {
     lerNfse: (cred: Credencial, id: string) => chamar<DetalheNfse>(cred, 'GET', `/v1/nfse/${id}`),
 
     /**
-     * O feed da família: o mesmo cursor do da NF-e, só com os comandos `nfse.*`. As duas famílias dividem a
+     * O feed da família: o mesmo protocolo de cursor do da NF-e, só com os comandos `nfse.*`. As duas famílias dividem a
      * numeração do `seq`, então cada feed enxerga buracos que são eventos do outro, e cada um tem o SEU cursor.
      */
     lerFeedNfse: (cred: Credencial, since: number, limit = 100) =>
@@ -474,8 +475,9 @@ export function criarClienteApi(opcoes: Opcoes) {
     baixarXmlNfse: (cred: Credencial, id: string) => baixar(cred, `/v1/nfse/${id}/xml`, 'application/xml'),
 
     /**
-     * O DANFSe: a plataforma o gera a cada pedido, a partir do XML. Serve a autorizada, a cancelada e a substituída,
-     * cada uma com a marca da situação atual; antes de a DPS virar NFS-e é `409 nfse-danfse-unavailable`.
+     * O DANFSe: a plataforma o gera a cada pedido, a partir do XML. Serve a autorizada, a cancelada e a substituída:
+     * a cancelada leva a marca "CANCELADA", e a substituída, "SUBSTITUÍDA"; a de produção restrita (a homologação deste
+     * exemplo) leva, no cabeçalho, "NFS-e SEM VALIDADE JURÍDICA". Antes de a DPS virar NFS-e é `409 nfse-danfse-unavailable`.
      */
     baixarDanfse: (cred: Credencial, id: string) => baixar(cred, `/v1/nfse/${id}/danfse`, 'application/pdf'),
 

@@ -1,7 +1,7 @@
 // A emissão da NFS-e: a tela Nova NFS-e monta o `documento` da DPS, grava a chave e o corpo ANTES da chamada e
 // só então chama `POST /v1/nfse?wait=`. A lista e o detalhe mostram o status local e a SEFIN que calculou.
 
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ateSeries, ateSerieDps, EMITENTE_NFSE, pedidoNfse, subir, type Cenario } from './apoio.ts';
 
@@ -13,6 +13,13 @@ test('NFS-e resolvida no wait: chave e corpo gravados antes da chamada, e o corp
   const c = await subir();
   try {
     await ateSerieDps(c);
+    // O que o banco local tinha NO MOMENTO em que a emissão chegou à API: igualdade depois da chamada não prova a ordem.
+    const naChamada: { chave: string | undefined; corpo: string | undefined; commandId: string | null | undefined }[] = [];
+    c.api.aoReceber = (q) => {
+      if (q.metodo !== 'POST' || !q.caminho.startsWith('/v1/nfse?')) return;
+      const [n] = c.banco.listarNfses();
+      naChamada.push({ chave: n?.idempotencyKey, corpo: n?.corpoEnviado, commandId: n?.commandId });
+    };
     const r = await c.post('/nova-nfse/emitir', pedidoNfse());
     assert.match(r.html, /HTTP 200: o wait resolveu, completed \/ authorized, DPS 1, NFS-e nº 1/);
 
@@ -23,6 +30,11 @@ test('NFS-e resolvida no wait: chave e corpo gravados antes da chamada, e o corp
     // A chave gravada é a que foi para o header; o corpo gravado é o que saiu.
     assert.equal(envio.cabecalhos['idempotency-key'], nfse.idempotencyKey);
     assert.deepEqual(envio.corpo, JSON.parse(nfse.corpoEnviado));
+    // E foram gravados ANTES: quando a chamada chegou, a linha já estava lá, com a chave e o corpo, e sem o comando que a resposta devolve.
+    assert.equal(naChamada.length, 1);
+    assert.equal(naChamada[0].chave, nfse.idempotencyKey);
+    assert.deepEqual(JSON.parse(naChamada[0].corpo!), envio.corpo);
+    assert.equal(naChamada[0].commandId, null);
 
     // O envelope é { serie, documento }, sem numeroDps (a série é managed). O prestador, o dhEmi, o número e o
     // ambiente são da plataforma: o que vier deles no documento é ignorado, então a aplicação nem os manda.
@@ -98,7 +110,34 @@ test('o tomador sai por cpf, por cnpj ou por cnpj alfanumérico, conforme o docu
   }
 });
 
-test('o pedido é conferido na tela antes de qualquer chamada: nenhum POST /v1/nfse sai', async () => {
+test('o valor: 1.500,00 e 1.500 são mil e quinhentos, e 1500.5 é um real e meio', async () => {
+  const c = await subir();
+  try {
+    await ateSerieDps(c);
+    for (const [texto, esperado] of [['1.500,00', 1500], ['1.500', 1500], ['1500', 1500], ['1500,5', 1500.5], ['1500.5', 1500.5], ['2.500.000,75', 2500000.75], ['0,5', 0.5]] as const) {
+      await c.post('/nova-nfse/emitir', pedidoNfse({ vserv: texto }));
+      const corpo = ultimoEnvio(c).corpo as { documento: { valores: { vServ: number } } };
+      assert.equal(corpo.documento.valores.vServ, esperado, texto);
+    }
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('a competência padrão é o primeiro dia do mês de hoje em Brasília, e não o do mês seguinte em UTC', async () => {
+  const c = await subir();
+  try {
+    // 01/11 01:00 UTC é 31/10 22:00 em Brasília: em UTC o mês já virou, em Brasília ainda não.
+    mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-01T01:00:00Z') });
+    const tela = await c.get('/nova-nfse');
+    assert.match(tela.html, /name="dcompet" value="2026-10-01"/);
+  } finally {
+    mock.timers.reset();
+    await c.encerrar();
+  }
+});
+
+test('o pedido é conferido na tela antes de chamar a emissão: nenhum POST /v1/nfse sai', async () => {
   const c = await subir();
   try {
     await ateSerieDps(c);
@@ -106,7 +145,10 @@ test('o pedido é conferido na tela antes de qualquer chamada: nenhum POST /v1/n
       [{ vserv: '0' }, /Valor do serviço: maior que zero/],
       [{ ctribnac: '0107' }, /Código de tributação nacional: seis dígitos/],
       [{ xdescserv: '' }, /Descrição do serviço: obrigatória/],
-      [{ dcompet: '09/2026' }, /Competência: AAAA-MM-DD/],
+      [{ dcompet: '09/2026' }, /Competência: AAAA-MM-DD, um dia que exista/],
+      // O `Date.parse` aceita 30 de fevereiro e o empurra para março: o dia tem de existir no calendário.
+      [{ dcompet: '2026-02-30' }, /Competência: AAAA-MM-DD, um dia que exista/],
+      [{ dcompet: '2999-01-01' }, /Competência: não pode ser posterior à data de emissão/],
       [{ toma_documento: '123' }, /Tomador: CPF \(11 dígitos\) ou CNPJ \(14 caracteres\)/],
       [{ toma_nome: '' }, /Tomador: informe o nome ou a razão social/],
       [{ clocprestacao: '41' }, /Município da prestação: sete dígitos do IBGE/],
@@ -117,7 +159,7 @@ test('o pedido é conferido na tela antes de qualquer chamada: nenhum POST /v1/n
     for (const [alteracao, esperado] of recusas) {
       assert.match((await c.post('/nova-nfse/emitir', pedidoNfse(alteracao))).texto, esperado, JSON.stringify(alteracao));
     }
-    assert.equal(envios(c), 0, 'a forma se confere antes de chamar a API');
+    assert.equal(envios(c), 0, 'a forma se confere antes de chamar a emissão (só a leitura do emitente, para o CRT, sai antes)');
     assert.equal(c.banco.listarNfses().length, 0, 'e nada é gravado');
   } finally {
     await c.encerrar();
