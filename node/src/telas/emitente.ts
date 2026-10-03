@@ -82,6 +82,8 @@ async function cadastrar({ form, config, banco, cliente }: Contexto): Promise<Re
   try {
     const { corpo } = await cliente.criarEmitente(config.gestao, dados);
     banco.gravarEmitenteId(corpo.id);
+    // A ficha da API não traz o código IBGE do município: quem cadastra o guarda, para o serviço da NFS-e e o convênio.
+    banco.gravarCodMunicipio(dados.cod_municipio);
     // O destinatário semeado muda para o município do emitente: a primeira nota sai como venda interna.
     // Venda interestadual a consumidor final exige o grupo do DIFAL, que este exemplo não monta.
     banco.alinharDestinatarioSemente({ codMunicipio: dados.cod_municipio, municipio: dados.municipio, uf: dados.uf });
@@ -385,7 +387,7 @@ ${passo('B', 'Consultar o convênio do município (opcional)', 'POST /v1/emitent
   ? bloqueado('cadastre o emitente')
   : html`<p>Pergunta ao Ambiente de Dados Nacional (ADN) que parâmetros de convênio o município publicou. É por código de município, e qualquer um serve, não só o do emitente; a resposta vem no corpo, sem comando a acompanhar. O certificado do emitente abre o mTLS com o ADN, e sem ele a consulta é recusada com 422. Pode ser feita antes da ativação, porque vai com a credencial de gestão, e a do emitente só autentica depois dela.</p>
 <p><b>Não bloqueia a emissão</b>, e o veredito não diz se o município aderiu ao Sistema Nacional: diz se a parametrização veio.</p>
-<form method="post" action="/emitente/convenio"><label>Código do município (IBGE, 7 dígitos) <input name="codigo_municipio" placeholder="4106902" size="9" maxlength="7"></label><button>Consultar convênio</button></form>`)}`;
+<form method="post" action="/emitente/convenio"><label>Código do município (IBGE, 7 dígitos) <input name="codigo_municipio" placeholder="4106902" size="9" maxlength="7" value="${cfg.codMunicipio ?? ''}"></label><button>Consultar convênio</button></form>`)}`;
 
   return { html: pagina('Emitente', '/emitente', corpo, chamadas) };
 }

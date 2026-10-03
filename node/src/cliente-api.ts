@@ -185,6 +185,63 @@ export type RepresentacaoComando = {
   atualizadoEm: string;
 };
 
+/**
+ * Corpo do `POST /v1/nfse`, no molde do da NF-e: o roteamento no topo, a DPS em `documento`. Em série managed não
+ * vai `numeroDps`. O prestador, o `dhEmi`, o número e o ambiente são da plataforma, e o que vier deles no `documento`
+ * é ignorado.
+ */
+export type IntakeNfse = { serie: number; numeroDps?: number; documento: Record<string, unknown> };
+
+/**
+ * O que o documento informou e o que só a SEFIN calcula. Os campos calculados são nulos antes da `autorizada`, ou
+ * quando a NFS-e não os traz.
+ */
+export type ResumoNfse = {
+  tomadorNome: string | null;
+  tomadorDoc: string | null;
+  competencia: string | null;
+  valorServico: number | null;
+  codigoTributacaoNacional: string | null;
+  descricaoServico: string | null;
+  municipioIncidencia: string | null;
+  nomeMunicipioIncidencia: string | null;
+  descricaoTributacaoNacional: string | null;
+  valorIssqn: number | null;
+  valorRetido: number | null;
+  valorLiquido: number | null;
+};
+
+/**
+ * O `GET /v1/nfse/{id}`, e o `200` de um `wait` resolvido na emissão: a representação do comando mais a `situacao`
+ * (com os nomes da NF-e), o número da DPS, a NFS-e gerada e o `resumo`. É outra família: o `id` de uma NF-e
+ * responde `404` aqui.
+ */
+export type DetalheNfse = {
+  id: string;
+  status: string;
+  outcome: 'authorized' | 'rejected' | null;
+  serie: number;
+  numeroDps: number | null;
+  /** `chave` na autorização; `motivo` na rejeição, na falha e no bloqueio. */
+  result: Record<string, unknown> | null;
+  attempts: number;
+  criadoEm: string;
+  atualizadoEm: string;
+  situacao: string;
+  numeroNfse: number | null;
+  /** Anulável também na `autorizada`: um provedor municipal pode não atribuí-la. */
+  chave: string | null;
+  recebidaEm: string;
+  emitidaEm: string | null;
+  autorizadaEm: string | null;
+  canceladaEm: string | null;
+  origemCancelamento: 'pedido' | 'analise-fiscal' | 'oficio' | null;
+  justificativaCancelamento: string | null;
+  substituidaEm: string | null;
+  substituidaPor: { id: string | null; chave: string } | null;
+  resumo: ResumoNfse;
+};
+
 /** A correção que o fisco considera hoje: a última carta registrada. A próxima carta é construída sobre ela. */
 export type CorrecaoVigente = { texto: string; nSeq: number; registradaEm: string | null };
 
@@ -368,6 +425,26 @@ export function criarClienteApi(opcoes: Opcoes) {
      */
     emitirNfe: (cred: Credencial, corpo: IntakeNfe, idempotencyKey: string, waitMs: number) =>
       chamar<RepresentacaoComando | AceiteComando>(cred, 'POST', `/v1/nfe?wait=${waitMs}`, corpo, { 'Idempotency-Key': idempotencyKey }),
+
+    /**
+     * NFS-e: enfileira a DPS. Mesmo molde da emissão da NF-e: `Idempotency-Key` obrigatória (uma por intenção de
+     * emissão, gravada antes de chamar) e `wait` opcional, com teto de 15000. Desfecho dentro da janela vem como `200`
+     * com o detalhe da NFS-e; fora dela, `202` com o aceite. Distinga pela presença de `outcome`, não pelo status.
+     * A DPS rejeitada pode ser reaberta no mesmo `numeroDps` (`reabrir: true`, com chave nova); este exemplo não
+     * usa isso: emitir de novo, sem o `reabrir`, toma o próximo número.
+     */
+    emitirNfse: (cred: Credencial, corpo: IntakeNfse, idempotencyKey: string, waitMs: number) =>
+      chamar<DetalheNfse | AceiteComando>(cred, 'POST', `/v1/nfse?wait=${waitMs}`, corpo, { 'Idempotency-Key': idempotencyKey }),
+
+    /** A NFS-e: `situacao`, número da DPS, número e chave da NFS-e e o `resumo` que a SEFIN calculou. */
+    lerNfse: (cred: Credencial, id: string) => chamar<DetalheNfse>(cred, 'GET', `/v1/nfse/${id}`),
+
+    /**
+     * O feed da família: o mesmo cursor do da NF-e, só com os comandos `nfse.*`. As duas famílias dividem a
+     * numeração do `seq`, então cada feed enxerga buracos que são eventos do outro, e cada um tem o SEU cursor.
+     */
+    lerFeedNfse: (cred: Credencial, since: number, limit = 100) =>
+      chamar<FeedResposta>(cred, 'GET', `/v1/nfse/events?since=${since}&limit=${limit}`),
 
     /** A nota enriquecida: `situacao`, chave, protocolo, marcos. É a leitura que fecha o que o feed anunciou. */
     lerNota: (cred: Credencial, id: string) => chamar<NotaDetalhe>(cred, 'GET', `/v1/nfe/${id}`),

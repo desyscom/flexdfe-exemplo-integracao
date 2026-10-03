@@ -53,6 +53,26 @@ export type OperacaoFalsa = {
   concluidaEm: string | null;
 };
 
+/**
+ * Uma DPS e a NFS-e que ela vira, do jeito que a API a representa. É outra família: o `id` de uma NFS-e responde
+ * `404` nas rotas da NF-e, e o de uma NF-e responde `404` nas da NFS-e.
+ */
+export type DpsFalsa = {
+  id: string;
+  emitenteId: string;
+  status: string;
+  outcome: 'authorized' | 'rejected' | null;
+  serie: number;
+  numeroDps: number;
+  numeroNfse: number | null;
+  chave: string | null;
+  situacao: string;
+  result: Record<string, unknown> | null;
+  documento: Record<string, any>;
+  criadoEm: string;
+  autorizadaEm: string | null;
+};
+
 export type EventoFalso = { seq: number; commandId: string; type: string; status: string; outcome: 'authorized' | 'rejected' | null; criadoEm: string };
 
 type RespostaFalsa = { status: number; tipo: string; corpo: unknown; texto?: string; disposicao?: string; cabecalhos?: Record<string, string> };
@@ -98,6 +118,10 @@ export class ApiFalsa {
   /** O `seq` avança de 2 em 2 de propósito: o feed real tem buracos, e o consumidor não pode contá-los. */
   private proximoSeq = 1;
 
+  // ---- NFS-e: a família `/v1/nfse`, com os comandos `nfse.*` no mesmo feed numerado. ----
+  readonly dps = new Map<string, DpsFalsa>();
+  private proximaNfse = 1;
+
   // ---- Operações sobre a nota emitida. ----
   readonly operacoes = new Map<string, OperacaoFalsa>();
   /** `sincrono`: cancelamento, carta e inutilização concluem na hora. `assincrono`: ficam pendentes até `concluirOperacao`. */
@@ -133,6 +157,32 @@ export class ApiFalsa {
       c.result = { motivo: desfecho === 'failed' ? 'PIS_COFINS_AUSENTE em /det[1]/imposto/PIS' : 'a série está inativa e não aceita número novo; reative-a ou envie a nota por outra série', ...(desfecho === 'failed' ? { situacao: 'inexistente', origem: 'local', classe: 'permanent' } : {}) };
     }
     return this.publicar(commandId, 'nfe.emit', c.status, c.outcome);
+  }
+
+  /** Fecha uma DPS pendente com o desfecho dado, e publica o `nfse.emit` no feed. A autorizada vira NFS-e, com número e chave. */
+  concluirDps(id: string, desfecho: 'authorized' | 'rejected' | 'failed' | 'blocked'): EventoFalso {
+    const d = this.dps.get(id)!;
+    if (desfecho === 'authorized') {
+      d.status = 'completed';
+      d.outcome = 'authorized';
+      d.situacao = 'autorizada';
+      d.numeroNfse = this.proximaNfse++;
+      // A chave da NFS-e tem 50 posições.
+      d.chave = '4106902' + String(d.numeroNfse).padStart(43, '0');
+      d.autorizadaEm = new Date().toISOString();
+      d.result = { chave: d.chave };
+    } else if (desfecho === 'rejected') {
+      d.status = 'completed';
+      d.outcome = 'rejected';
+      d.situacao = 'rejeitada';
+      d.result = { motivo: 'E0116: Inscrição municipal do prestador ausente ou inválida' };
+    } else {
+      d.status = desfecho;
+      d.outcome = null;
+      d.situacao = 'bloqueada';
+      d.result = { motivo: desfecho === 'failed' ? 'IM_AUSENTE em /prest/IM' : 'a série está inativa e não aceita número novo' };
+    }
+    return this.publicar(id, 'nfse.emit', d.status, d.outcome);
   }
 
   /**
@@ -373,6 +423,51 @@ export class ApiFalsa {
       return json(202, aceiteOperacao(o, `/v1/inutilizacoes/${o.id}`));
     }
 
+    // ---- NFS-e: o intake da DPS, o feed da família e o detalhe. Escopo de emitente, como na NF-e. ----
+    if (partes[1] === 'nfse') {
+      if (cred.escopo !== 'emitente') return problema(403, 'emitente-scope-required');
+
+      if (metodo === 'POST' && partes.length === 2) {
+        if (!cabecalhos['idempotency-key']) return problema(422, 'idempotency-key-required', 'informe o header Idempotency-Key');
+        const chave = String(cabecalhos['idempotency-key']);
+        const c = corpo as { serie?: number; numeroDps?: number; documento?: Record<string, any> };
+        if (!Number.isInteger(c.serie) || c.serie! < 1 || c.serie! > 49999 || typeof c.documento !== 'object' || c.documento === null) return problema(422, 'invalid-request-body', 'serie é um inteiro de 1 a 49999 e documento é obrigatório');
+        const replay = this.replay(chave, corpo);
+        if (replay) return replay;
+        const emitente = this.emitentes.get(cred.emitenteId!)!;
+        const serie = this.series.find((s) => s.emitenteId === cred.emitenteId && s.ambiente === emitente.ambiente && s.tipoDocumento === 'dps' && s.serie === c.serie);
+        if (!serie) return problema(404, 'series-not-provisioned', `série dps serie=${c.serie} não provisionada no ambiente ${emitente.ambiente}`);
+        const nova: DpsFalsa = {
+          id: randomUUID(),
+          emitenteId: cred.emitenteId!,
+          status: 'pending',
+          outcome: null,
+          serie: c.serie!,
+          numeroDps: serie.nextNumber++,
+          numeroNfse: null,
+          chave: null,
+          situacao: 'pendente',
+          result: null,
+          documento: c.documento,
+          criadoEm: new Date().toISOString(),
+          autorizadaEm: null,
+        };
+        this.dps.set(nova.id, nova);
+        this.chaves.set(chave, { impressao: canonico(corpo), id: nova.id });
+        if (this.modoEmissao === 'sincrono' && Number(query.get('wait') ?? 0) > 0) {
+          this.concluirDps(nova.id, 'authorized');
+          return json(200, detalheDps(nova));
+        }
+        return json(202, aceiteDps(nova));
+      }
+
+      if (metodo === 'GET' && partes[2] === 'events') return json(200, this.lerFeed('nfse', query));
+
+      const dps = this.dps.get(partes[2]);
+      if (!dps || dps.emitenteId !== cred.emitenteId) return problema(404, 'command-not-found', `comando ${partes[2]} não encontrado`);
+      if (metodo === 'GET' && partes.length === 3) return json(200, detalheDps(dps));
+    }
+
     // ---- Emissão e acompanhamento: escopo de emitente. ----
     if (partes[1] === 'nfe') {
       if (cred.escopo !== 'emitente') return problema(403, 'emitente-scope-required');
@@ -521,6 +616,8 @@ export class ApiFalsa {
     if (vista.impressao !== canonico(corpo)) return { status: 422, tipo: 'application/problem+json', corpo: { type: 'idempotency-key-conflict', title: 'idempotency-key-conflict', status: 422, detail: 'mesma Idempotency-Key com corpo diferente', instance: '' } };
     const comando = this.comandos.get(vista.id);
     if (comando) return json(ehTerminal(comando.status) ? 200 : 202, aceite(comando));
+    const dps = this.dps.get(vista.id);
+    if (dps) return json(ehTerminal(dps.status) ? 200 : 202, aceiteDps(dps));
     const o = this.operacoes.get(vista.id)!;
     return json(ehTerminal(o.status) ? 200 : 202, aceiteOperacao(o, ''));
   }
@@ -597,6 +694,55 @@ function canonico(v: unknown): string {
 const aceite = (c: Comando) => ({ id: c.id, status: c.status, links: { self: `/v1/nfe/${c.id}`, events: '/v1/nfe/events?since=0' } });
 
 const representacao = (c: Comando) => ({ id: c.id, status: c.status, outcome: c.outcome, modelo: c.modelo, serie: c.serie, numero: c.numero, result: c.result, attempts: 1, retentativa: null, criadoEm: c.criadoEm, atualizadoEm: new Date().toISOString() });
+
+const aceiteDps = (d: DpsFalsa) => ({ id: d.id, status: d.status, links: { self: `/v1/nfse/${d.id}`, events: '/v1/nfse/events?since=0' } });
+
+/**
+ * O detalhe da NFS-e: a representação do comando mais a `situacao`, o número da DPS, a NFS-e gerada e o `resumo`,
+ * com o que o `documento` informou e o que só a SEFIN calcula (nulo antes da `autorizada`).
+ */
+function detalheDps(d: DpsFalsa) {
+  const { toma, serv, valores } = d.documento;
+  const autorizada = d.situacao === 'autorizada';
+  return {
+    id: d.id,
+    status: d.status,
+    outcome: d.outcome,
+    serie: d.serie,
+    numeroDps: d.numeroDps,
+    result: d.result,
+    attempts: 1,
+    retentativa: null,
+    criadoEm: d.criadoEm,
+    atualizadoEm: new Date().toISOString(),
+    situacao: d.situacao,
+    numeroNfse: d.numeroNfse,
+    chave: d.chave,
+    recebidaEm: d.criadoEm,
+    emitidaEm: null,
+    autorizadaEm: d.autorizadaEm,
+    canceladaEm: null,
+    origemCancelamento: null,
+    justificativaCancelamento: null,
+    substituidaEm: null,
+    substituidaPor: null,
+    substituicao: null,
+    resumo: {
+      tomadorNome: toma?.razaoSocial ?? null,
+      tomadorDoc: toma?.cnpj ?? toma?.cpf ?? null,
+      competencia: d.documento.dCompet ?? null,
+      valorServico: valores?.vServ ?? null,
+      codigoTributacaoNacional: serv?.cTribNac ?? null,
+      descricaoServico: serv?.xDescServ ?? null,
+      municipioIncidencia: autorizada ? serv?.cLocPrestacao ?? null : null,
+      nomeMunicipioIncidencia: autorizada ? 'CURITIBA' : null,
+      descricaoTributacaoNacional: autorizada ? 'Serviço de tecnologia da informação' : null,
+      valorIssqn: autorizada ? Math.round(valores.vServ * 2) / 100 : null,
+      valorRetido: autorizada ? 0 : null,
+      valorLiquido: autorizada ? valores.vServ : null,
+    },
+  };
+}
 
 /** O aceite de uma operação: o `id` é do comando NOVO; `links.nota` aponta a nota. */
 const aceiteOperacao = (o: OperacaoFalsa, self: string, nota?: string) => ({ id: o.id, status: o.status, links: { self, ...(nota ? { nota } : { events: '/v1/nfe/events?since=0' }) } });

@@ -5,14 +5,19 @@
 // existe para a tela, e é o feed de eventos que o mantém honesto.
 //
 // Tabelas:
-//   configuracao   uma linha: emitente, credencial operacional, segredo do webhook, cursor do feed
+//   configuracao   uma linha: emitente, credencial operacional, segredo do webhook, os cursores dos
+//                  dois feeds (NF-e e NFS-e)
 //   produto        cadastro local mínimo, semeado nas duas variantes tributárias
 //   destinatario   cadastro local mínimo, semeado com o destinatário de homologação
 //   nota           uma linha por emissão: a Idempotency-Key e o corpo enviado ficam gravados ANTES
 //                  da chamada; o desfecho chega pelo feed ou pelo webhook
-//   evento         o histórico bruto do que o feed e o webhook entregaram, com a origem de cada um
+//   nfse           o mesmo para a NFS-e: outra família na API, e por isso outra tabela, com o número da
+//                  DPS e o da NFS-e no lugar de modelo e número
+//   evento         o histórico bruto do que os feeds e o webhook entregaram, com a origem de cada um. É
+//                  uma tabela só: as duas famílias dividem a numeração do `seq`, que é único entre elas
 //   operacao       consulta, cancelamento, carta e inutilização: uma linha por comando disparado, com o id
-//                  que a API devolveu e a situação, fechada pelo feed como a emissão
+//                  que a API devolveu e a situação, fechada pelo feed como a emissão. É sobre uma nota
+//                  (`nota_id`), sobre uma NFS-e (`nfse_id`) ou sobre uma faixa, sem nenhuma das duas
 
 import { DatabaseSync } from 'node:sqlite';
 import type { Credencial } from './config.ts';
@@ -25,8 +30,12 @@ export type Configuracao = {
   credencialSecret: string | null;
   /** Segredo que assina cada entrega do webhook. Aparece uma vez, ao criar ou rotacionar. */
   webhookSecret: string | null;
-  /** Último `seq` do feed já aplicado. O feed é exclusivo: pede-se `since` igual a ele. */
+  /** Último `seq` do feed da NF-e já aplicado. O feed é exclusivo: pede-se `since` igual a ele. */
   cursorFeed: number;
+  /** O mesmo para o feed da NFS-e: as duas famílias dividem a numeração do `seq`, mas cada feed tem o seu cursor. */
+  cursorFeedNfse: number;
+  /** O código IBGE do município do cadastro, quando foi esta aplicação que cadastrou o emitente (a ficha da API não o traz). */
+  codMunicipio: string | null;
 };
 
 /**
@@ -91,17 +100,46 @@ export type Nota = {
   criadoEm: string;
 };
 
+/**
+ * Uma NFS-e local: a DPS que a aplicação mandou e o que a API devolveu sobre ela. O `numeroDps` é o que a
+ * plataforma numerou na série de DPS; o `numeroNfse` e a `chave` só existem depois da `autorizada`, e é a SEFIN
+ * quem os atribui.
+ */
+export type Nfse = {
+  id: number;
+  /** O `id` do comando, devolvido pela API. `null` enquanto a chamada não voltou. */
+  commandId: string | null;
+  serie: number;
+  numeroDps: number | null;
+  numeroNfse: number | null;
+  chave: string | null;
+  /** `status` do comando, como a API o chama: pending, processing, completed, failed, blocked. */
+  status: string | null;
+  outcome: string | null;
+  /** A `situacao` lida da API (`GET /v1/nfse/{id}`), quando já foi lida. */
+  situacao: string | null;
+  /** Quem confirmou o desfecho: `feed` ou `webhook`. `null` enquanto só a resposta da emissão falou. */
+  confirmadoPor: string | null;
+  idempotencyKey: string;
+  /** O corpo exato do `POST /v1/nfse`, para comparar com o que a Referência descreve. */
+  corpoEnviado: string;
+  /** O último corpo que a API devolveu sobre esta NFS-e, tal como veio. */
+  ultimoResultado: string | null;
+  criadoEm: string;
+};
+
 export type TipoOperacao = 'consulta' | 'cancelamento' | 'carta' | 'inutilizacao';
 
 /**
- * Uma operação disparada sobre a API: consulta, cancelamento e carta são sobre uma nota; a inutilização é
- * sobre uma faixa, sem nota. O `commandId` é do comando NOVO que a API devolveu no aceite, e é por ele que
- * o feed (`nfe.cancel`, `nfe.cce`, `nfe.inutiliza`) fecha a operação. A consulta não tem evento: é fechada
- * pela releitura da nota.
+ * Uma operação disparada sobre a API: consulta, cancelamento e carta são sobre uma nota (ou, na NFS-e, a consulta e o
+ * cancelamento, sobre uma NFS-e); a inutilização é sobre uma faixa, sem nota. O `commandId` é do comando NOVO que a
+ * API devolveu no aceite, e é por ele que o feed (`nfe.cancel`, `nfe.cce`, `nfe.inutiliza`, `nfse.cancel`) fecha a
+ * operação. A consulta não tem evento: é fechada pela releitura da nota.
  */
 export type Operacao = {
   id: number;
   notaId: number | null;
+  nfseId: number | null;
   tipo: TipoOperacao;
   commandId: string | null;
   /** A consulta não exige chave; as outras três, sim, e ela é gravada ANTES da chamada. */
@@ -190,6 +228,23 @@ export class Banco {
         criado_em TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       );
 
+      CREATE TABLE IF NOT EXISTS nfse (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        command_id TEXT UNIQUE,
+        serie INTEGER NOT NULL,
+        numero_dps INTEGER,
+        numero_nfse INTEGER,
+        chave TEXT,
+        status TEXT,
+        outcome TEXT,
+        situacao TEXT,
+        confirmado_por TEXT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        corpo_enviado TEXT NOT NULL,
+        ultimo_resultado TEXT,
+        criado_em TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+
       CREATE TABLE IF NOT EXISTS operacao (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nota_id INTEGER REFERENCES nota (id),
@@ -216,7 +271,17 @@ export class Banco {
         efeito TEXT NOT NULL
       );
     `);
+    // O arquivo do banco é de quem já rodou uma versão anterior: o que a NFS-e acrescentou às tabelas que já
+    // existiam entra por aqui, sem apagar nada. `CREATE TABLE IF NOT EXISTS` não altera uma tabela existente.
+    this.garantirColuna('configuracao', 'cursor_feed_nfse', 'INTEGER NOT NULL DEFAULT 0');
+    this.garantirColuna('configuracao', 'cod_municipio', 'TEXT');
+    this.garantirColuna('operacao', 'nfse_id', 'INTEGER REFERENCES nfse (id)');
     this.semear();
+  }
+
+  private garantirColuna(tabela: string, coluna: string, definicao: string): void {
+    const colunas = this.db.prepare(`PRAGMA table_info(${tabela})`).all() as { name: string }[];
+    if (!colunas.some((c) => c.name === coluna)) this.db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${definicao}`);
   }
 
   // ---------------------------------------------------------------- seed
@@ -248,8 +313,8 @@ export class Banco {
 
   /**
    * Volta o banco local ao estado da primeira execução: apaga o que a aplicação aprendeu (emitente,
-   * credencial operacional, segredo do webhook, cursor do feed) e o que ela gravou (notas, operações,
-   * eventos, produtos e destinatários), e semeia de novo.
+   * credencial operacional, segredo do webhook, cursores dos feeds) e o que ela gravou (notas, NFS-e,
+   * operações, eventos, produtos e destinatários), e semeia de novo.
    *
    * **Nada na plataforma é tocado.** O emitente continua cadastrado, as notas emitidas continuam
    * autorizadas, a credencial continua válida. O que se perde é local e irrecuperável: os `secret`
@@ -261,11 +326,12 @@ export class Banco {
       DELETE FROM evento;
       DELETE FROM operacao;
       DELETE FROM nota;
+      DELETE FROM nfse;
       DELETE FROM destinatario;
       DELETE FROM produto;
       UPDATE configuracao
          SET emitente_id = NULL, credencial_client_id = NULL, credencial_secret = NULL,
-             webhook_secret = NULL, cursor_feed = 0
+             webhook_secret = NULL, cursor_feed = 0, cursor_feed_nfse = 0, cod_municipio = NULL
        WHERE id = 1;
     `);
     // Os ids recomeçam do 1, como numa instalação nova. A tabela só existe depois do primeiro
@@ -290,6 +356,8 @@ export class Banco {
       credencialSecret: (linha.credencial_secret as string | null) ?? null,
       webhookSecret: (linha.webhook_secret as string | null) ?? null,
       cursorFeed: Number(linha.cursor_feed),
+      cursorFeedNfse: Number(linha.cursor_feed_nfse),
+      codMunicipio: (linha.cod_municipio as string | null) ?? null,
     };
   }
 
@@ -316,6 +384,16 @@ export class Banco {
   /** Grava o cursor. Chame DEPOIS de aplicar os eventos da página: é isso que torna a leitura reentrante. */
   gravarCursorFeed(cursor: number): void {
     this.db.prepare('UPDATE configuracao SET cursor_feed = ? WHERE id = 1').run(cursor);
+  }
+
+  /** O cursor do feed da NFS-e, com a mesma regra: só depois de a página inteira ser aplicada. */
+  gravarCursorFeedNfse(cursor: number): void {
+    this.db.prepare('UPDATE configuracao SET cursor_feed_nfse = ? WHERE id = 1').run(cursor);
+  }
+
+  /** O município do cadastro: a ficha da API não traz o código IBGE, então quem cadastra o guarda. */
+  gravarCodMunicipio(codigo: string): void {
+    this.db.prepare('UPDATE configuracao SET cod_municipio = ? WHERE id = 1').run(codigo);
   }
 
   // ---------------------------------------------------------------- produto
@@ -423,6 +501,58 @@ export class Banco {
       .run(d.status, d.outcome, d.numero ?? null, d.chave ?? null, d.protocolo ?? null, d.situacao ?? null, d.confirmadoPor ?? null, d.ultimoResultado ?? null, id);
   }
 
+  // ---------------------------------------------------------------- nfse
+
+  listarNfses(): Nfse[] {
+    return (this.db.prepare('SELECT * FROM nfse ORDER BY id DESC').all() as Record<string, unknown>[]).map(nfseDaLinha);
+  }
+
+  lerNfse(id: number): Nfse | null {
+    const l = this.db.prepare('SELECT * FROM nfse WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return l ? nfseDaLinha(l) : null;
+  }
+
+  lerNfsePorComando(commandId: string): Nfse | null {
+    const l = this.db.prepare('SELECT * FROM nfse WHERE command_id = ?').get(commandId) as Record<string, unknown> | undefined;
+    return l ? nfseDaLinha(l) : null;
+  }
+
+  /** A NFS-e nasce aqui, ANTES do `POST /v1/nfse`: com a chave e o corpo, sem `command_id`. */
+  criarNfsePendente(n: { serie: number; idempotencyKey: string; corpoEnviado: string }): number {
+    const r = this.db.prepare('INSERT INTO nfse (serie, idempotency_key, corpo_enviado) VALUES (?, ?, ?)').run(n.serie, n.idempotencyKey, n.corpoEnviado);
+    return Number(r.lastInsertRowid);
+  }
+
+  /** O que a RESPOSTA da emissão pode gravar: o id do comando e o status inicial. */
+  gravarAceiteNfse(id: number, commandId: string, status: string, ultimoResultado: string): void {
+    this.db.prepare('UPDATE nfse SET command_id = ?, status = ?, ultimo_resultado = ? WHERE id = ?').run(commandId, status, ultimoResultado, id);
+  }
+
+  /** Um desfecho, venha do `wait`, do feed, do webhook ou de uma releitura. `confirmadoPor` só é preenchido pelo feed e pelo webhook. */
+  gravarDesfechoNfse(
+    id: number,
+    d: {
+      status: string;
+      outcome: string | null;
+      numeroDps?: number | null;
+      numeroNfse?: number | null;
+      chave?: string | null;
+      situacao?: string | null;
+      confirmadoPor?: string | null;
+      ultimoResultado?: string | null;
+    },
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE nfse SET status = ?, outcome = ?,
+           numero_dps = COALESCE(?, numero_dps), numero_nfse = COALESCE(?, numero_nfse), chave = COALESCE(?, chave),
+           situacao = COALESCE(?, situacao), confirmado_por = COALESCE(?, confirmado_por),
+           ultimo_resultado = COALESCE(?, ultimo_resultado)
+         WHERE id = ?`,
+      )
+      .run(d.status, d.outcome, d.numeroDps ?? null, d.numeroNfse ?? null, d.chave ?? null, d.situacao ?? null, d.confirmadoPor ?? null, d.ultimoResultado ?? null, id);
+  }
+
   // ---------------------------------------------------------------- operacao
 
   listarOperacoes(notaId?: number): Operacao[] {
@@ -430,6 +560,11 @@ export class Banco {
       ? this.db.prepare('SELECT * FROM operacao ORDER BY id DESC').all()
       : this.db.prepare('SELECT * FROM operacao WHERE nota_id = ? ORDER BY id DESC').all(notaId);
     return (linhas as Record<string, unknown>[]).map(operacaoDaLinha);
+  }
+
+  /** As operações de uma NFS-e: a consulta e o cancelamento. */
+  listarOperacoesNfse(nfseId: number): Operacao[] {
+    return (this.db.prepare('SELECT * FROM operacao WHERE nfse_id = ? ORDER BY id DESC').all(nfseId) as Record<string, unknown>[]).map(operacaoDaLinha);
   }
 
   lerOperacao(id: number): Operacao | null {
@@ -444,10 +579,10 @@ export class Banco {
   }
 
   /** A operação nasce ANTES da chamada, com a chave e o corpo, como a nota. */
-  criarOperacao(o: { notaId: number | null; tipo: TipoOperacao; idempotencyKey: string | null; corpoEnviado: string | null }): number {
+  criarOperacao(o: { notaId: number | null; nfseId?: number; tipo: TipoOperacao; idempotencyKey: string | null; corpoEnviado: string | null }): number {
     const r = this.db
-      .prepare('INSERT INTO operacao (nota_id, tipo, idempotency_key, corpo_enviado) VALUES (?, ?, ?, ?)')
-      .run(o.notaId, o.tipo, o.idempotencyKey, o.corpoEnviado);
+      .prepare('INSERT INTO operacao (nota_id, nfse_id, tipo, idempotency_key, corpo_enviado) VALUES (?, ?, ?, ?, ?)')
+      .run(o.notaId, o.nfseId ?? null, o.tipo, o.idempotencyKey, o.corpoEnviado);
     return Number(r.lastInsertRowid);
   }
 
@@ -539,9 +674,27 @@ const notaDaLinha = (l: Record<string, unknown>): Nota => ({
   criadoEm: String(l.criado_em),
 });
 
+const nfseDaLinha = (l: Record<string, unknown>): Nfse => ({
+  id: Number(l.id),
+  commandId: (l.command_id as string | null) ?? null,
+  serie: Number(l.serie),
+  numeroDps: l.numero_dps == null ? null : Number(l.numero_dps),
+  numeroNfse: l.numero_nfse == null ? null : Number(l.numero_nfse),
+  chave: (l.chave as string | null) ?? null,
+  status: (l.status as string | null) ?? null,
+  outcome: (l.outcome as string | null) ?? null,
+  situacao: (l.situacao as string | null) ?? null,
+  confirmadoPor: (l.confirmado_por as string | null) ?? null,
+  idempotencyKey: String(l.idempotency_key),
+  corpoEnviado: String(l.corpo_enviado),
+  ultimoResultado: (l.ultimo_resultado as string | null) ?? null,
+  criadoEm: String(l.criado_em),
+});
+
 const operacaoDaLinha = (l: Record<string, unknown>): Operacao => ({
   id: Number(l.id),
   notaId: l.nota_id == null ? null : Number(l.nota_id),
+  nfseId: l.nfse_id == null ? null : Number(l.nfse_id),
   tipo: l.tipo as TipoOperacao,
   commandId: (l.command_id as string | null) ?? null,
   idempotencyKey: (l.idempotency_key as string | null) ?? null,
