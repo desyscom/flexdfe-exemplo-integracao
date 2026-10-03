@@ -37,7 +37,7 @@ export type Comando = {
 /** Um comando de ciclo de vida (`nfe.cancel`, `nfe.cce`, `nfe.inutiliza`), do jeito que a API o representa. */
 export type OperacaoFalsa = {
   id: string;
-  tipo: 'nfe.cancel' | 'nfe.cce' | 'nfe.inutiliza';
+  tipo: 'nfe.cancel' | 'nfe.cce' | 'nfe.inutiliza' | 'nfse.cancel';
   emitenteId: string;
   /** O comando da nota, quando a operação é sobre uma nota. */
   notaId: string | null;
@@ -71,6 +71,15 @@ export type DpsFalsa = {
   documento: Record<string, any>;
   criadoEm: string;
   autorizadaEm: string | null;
+  canceladaEm: string | null;
+  origemCancelamento: 'pedido' | 'analise-fiscal' | 'oficio' | null;
+  justificativaCancelamento: string | null;
+  substituidaEm: string | null;
+  substituidaPor: { id: string | null; chave: string } | null;
+  /** O pedido de substituição, quando esta NFS-e é a substituta. */
+  substituicao: { original: string; chaveOriginal: string | null; codigoJustificativa: string; justificativa: string | null } | null;
+  /** O que a SEFIN sabe e a plataforma ainda não: um cancelamento feito por fora. A consulta traz para a NFS-e. */
+  verdadeSefin: { origem: 'pedido' | 'analise-fiscal' | 'oficio'; justificativa: string } | null;
 };
 
 export type EventoFalso = { seq: number; commandId: string; type: string; status: string; outcome: 'authorized' | 'rejected' | null; criadoEm: string };
@@ -171,6 +180,13 @@ export class ApiFalsa {
       d.chave = '4106902' + String(d.numeroNfse).padStart(43, '0');
       d.autorizadaEm = new Date().toISOString();
       d.result = { chave: d.chave };
+      // A SEFIN gera a substituta e cancela a original no mesmo envio: a original vira `substituida`.
+      const original = d.substituicao ? this.dps.get(d.substituicao.original) : undefined;
+      if (original) {
+        original.situacao = 'substituida';
+        original.substituidaEm = d.autorizadaEm;
+        original.substituidaPor = { id: d.id, chave: d.chave };
+      }
     } else if (desfecho === 'rejected') {
       d.status = 'completed';
       d.outcome = 'rejected';
@@ -197,6 +213,14 @@ export class ApiFalsa {
   }
 
   /**
+   * Cancela a NFS-e POR FORA da plataforma (o Emissor Nacional, a análise fiscal, o município). A plataforma não fica
+   * sabendo: `GET /v1/nfse/{id}` segue dizendo `autorizada` até uma consulta trazer o cancelamento. Sem evento no feed.
+   */
+  cancelarNfsePorFora(id: string, origem: 'pedido' | 'analise-fiscal' | 'oficio' = 'analise-fiscal', justificativa = 'Cancelamento deferido pelo município'): void {
+    this.dps.get(id)!.verdadeSefin = { origem, justificativa };
+  }
+
+  /**
    * Cancela a nota POR FORA da plataforma (outro sistema, o portal da SEFAZ). A plataforma não fica sabendo:
    * `GET /v1/nfe/{id}` segue dizendo `autorizada` até uma consulta reconciliar. Sem evento no feed.
    */
@@ -207,7 +231,10 @@ export class ApiFalsa {
   /** Fecha uma operação pendente com o desfecho dado, aplica o efeito na nota e publica no feed. */
   concluirOperacao(operacaoId: string, desfecho: 'authorized' | 'rejected' | 'failed'): EventoFalso {
     const o = this.operacoes.get(operacaoId)!;
-    const nota = o.notaId ? this.comandos.get(o.notaId)! : null;
+    // Na NFS-e o `notaId` é o id da DPS, que mora em outra tabela: o id de uma família responde 404 na outra.
+    const ehNfse = o.tipo === 'nfse.cancel';
+    const nota = o.notaId && !ehNfse ? this.comandos.get(o.notaId)! : null;
+    const dps = o.notaId && ehNfse ? this.dps.get(o.notaId)! : null;
     o.concluidaEm = new Date().toISOString();
     if (desfecho === 'failed') {
       o.status = 'failed';
@@ -219,7 +246,14 @@ export class ApiFalsa {
       o.outcome = desfecho;
       if (desfecho === 'authorized') {
         o.situacao = 'registrada';
-        o.protocolo = '135' + String(this.operacoes.size).padStart(12, '0');
+        // O evento de cancelamento da NFS-e não tem protocolo.
+        o.protocolo = ehNfse ? null : '135' + String(this.operacoes.size).padStart(12, '0');
+        if (dps) {
+          dps.situacao = 'cancelada';
+          dps.canceladaEm = o.concluidaEm;
+          dps.origemCancelamento = 'pedido';
+          dps.justificativaCancelamento = String(o.corpo.justificativa);
+        }
         if (o.tipo === 'nfe.cancel' && nota) {
           nota.situacao = 'cancelada';
           nota.canceladaEm = o.concluidaEm;
@@ -228,10 +262,11 @@ export class ApiFalsa {
         }
       } else {
         o.situacao = 'rejeitada';
-        o.motivo = o.tipo === 'nfe.inutiliza' ? '563 Rejeicao: Numero inicial da faixa maior que o final' : o.tipo === 'nfe.cancel' ? '501 Rejeicao: Prazo de cancelamento superior ao previsto na Legislacao' : '594 Rejeicao: O numero do evento nao e compativel';
+        o.motivo = o.tipo === 'nfe.inutiliza' ? '563 Rejeicao: Numero inicial da faixa maior que o final' : o.tipo === 'nfe.cancel' ? '501 Rejeicao: Prazo de cancelamento superior ao previsto na Legislacao' : ehNfse ? 'E0822: Cancelamento fora do prazo definido pelo município' : '594 Rejeicao: O numero do evento nao e compativel';
       }
     }
-    return this.publicar(o.id, o.tipo, o.status, o.outcome);
+    // O item do feed do cancelamento da NFS-e sai sem `outcome`: quem diz como a tentativa terminou é a leitura dela.
+    return this.publicar(o.id, o.tipo, o.status, ehNfse ? null : o.outcome);
   }
 
   constructor() {
@@ -430,11 +465,21 @@ export class ApiFalsa {
       if (metodo === 'POST' && partes.length === 2) {
         if (!cabecalhos['idempotency-key']) return problema(422, 'idempotency-key-required', 'informe o header Idempotency-Key');
         const chave = String(cabecalhos['idempotency-key']);
-        const c = corpo as { serie?: number; numeroDps?: number; documento?: Record<string, any> };
+        const c = corpo as { serie?: number; numeroDps?: number; documento?: Record<string, any>; substituicao?: { nfse?: string; codigoJustificativa?: string; justificativa?: string } };
         if (!Number.isInteger(c.serie) || c.serie! < 1 || c.serie! > 49999 || typeof c.documento !== 'object' || c.documento === null) return problema(422, 'invalid-request-body', 'serie é um inteiro de 1 a 49999 e documento é obrigatório');
+        // A forma da substituição: o código é do conjunto fechado, e a justificativa (15–255, no envelope da SEFAZ) é obrigatória com o 99.
+        if (c.substituicao) {
+          const { codigoJustificativa: codigo, justificativa: texto } = c.substituicao;
+          if (!['01', '02', '03', '04', '05', '99'].includes(String(codigo))) return problema(422, 'cancellation-reason-invalid', 'codigoJustificativa deve ser 01, 02, 03, 04, 05 ou 99');
+          if ((codigo === '99' && texto === undefined) || (texto !== undefined && (texto.length < 15 || texto.length > 255 || !PATTERN_TEXTO_SEFAZ.test(texto)))) return problema(422, 'cancellation-reason-invalid', 'justificativa: 15 a 255 caracteres no envelope da SEFAZ, obrigatória com o código 99');
+        }
         const replay = this.replay(chave, corpo);
         if (replay) return replay;
         const emitente = this.emitentes.get(cred.emitenteId!)!;
+        // A original, pelo id que a plataforma devolveu: a que a credencial não enxerga responde 404, e a que não está autorizada, 409.
+        const original = c.substituicao ? this.dps.get(String(c.substituicao.nfse)) : undefined;
+        if (c.substituicao && (!original || original.emitenteId !== cred.emitenteId)) return problema(404, 'nfse-original-not-found', 'a NFS-e a substituir não foi encontrada');
+        if (original && original.situacao !== 'autorizada') return problema(409, 'nfse-not-substitutable', `a NFS-e está '${original.situacao}'; só uma NFS-e autorizada se substitui`);
         const serie = this.series.find((s) => s.emitenteId === cred.emitenteId && s.ambiente === emitente.ambiente && s.tipoDocumento === 'dps' && s.serie === c.serie);
         if (!serie) return problema(404, 'series-not-provisioned', `série dps serie=${c.serie} não provisionada no ambiente ${emitente.ambiente}`);
         const nova: DpsFalsa = {
@@ -451,6 +496,13 @@ export class ApiFalsa {
           documento: c.documento,
           criadoEm: new Date().toISOString(),
           autorizadaEm: null,
+          canceladaEm: null,
+          origemCancelamento: null,
+          justificativaCancelamento: null,
+          substituidaEm: null,
+          substituidaPor: null,
+          substituicao: original ? { original: original.id, chaveOriginal: original.chave, codigoJustificativa: String(c.substituicao!.codigoJustificativa), justificativa: c.substituicao!.justificativa ?? null } : null,
+          verdadeSefin: null,
         };
         this.dps.set(nova.id, nova);
         this.chaves.set(chave, { impressao: canonico(corpo), id: nova.id });
@@ -466,6 +518,53 @@ export class ApiFalsa {
       const dps = this.dps.get(partes[2]);
       if (!dps || dps.emitenteId !== cred.emitenteId) return problema(404, 'command-not-found', `comando ${partes[2]} não encontrado`);
       if (metodo === 'GET' && partes.length === 3) return json(200, detalheDps(dps));
+
+      const sub = partes[3];
+      // O XML e o DANFSe existem para a DPS que a SEFIN transformou em NFS-e: a autorizada, a cancelada e a substituída.
+      const temNfse = ['autorizada', 'cancelada', 'substituida'].includes(dps.situacao);
+      if (metodo === 'GET' && sub === 'xml') {
+        if (!temNfse) return problema(409, 'nfse-xml-unavailable', 'a DPS ainda não virou NFS-e; não há XML para baixar');
+        return { status: 200, tipo: 'application/xml', corpo: undefined, texto: `<NFSe><infNFSe Id="NFS${dps.chave}"/></NFSe>`, disposicao: `attachment; filename="${dps.chave}.xml"` };
+      }
+      if (metodo === 'GET' && sub === 'danfse') {
+        if (!temNfse) return problema(409, 'nfse-danfse-unavailable', 'sem o XML da NFS-e não há DANFSe para gerar');
+        return { status: 200, tipo: 'application/pdf', corpo: undefined, texto: `%PDF-1.4 DANFSE ${dps.chave} ${dps.situacao}`, disposicao: `inline; filename="${dps.chave}.pdf"` };
+      }
+
+      // A consulta traz o que a SEFIN sabe: o cancelamento feito por fora. Sem evento no feed; a releitura mostra o resultado.
+      if (metodo === 'POST' && sub === 'consulta') {
+        if (dps.verdadeSefin && dps.situacao === 'autorizada') {
+          dps.situacao = 'cancelada';
+          dps.canceladaEm = new Date().toISOString();
+          dps.origemCancelamento = dps.verdadeSefin.origem;
+          dps.justificativaCancelamento = dps.verdadeSefin.justificativa;
+          dps.verdadeSefin = null;
+        }
+        return json(202, { id: randomUUID(), status: 'pending', links: { nota: `/v1/nfse/${dps.id}` } });
+      }
+
+      if (sub === 'cancelamento') {
+        const tentativas = [...this.operacoes.values()].filter((o) => o.tipo === 'nfse.cancel' && o.notaId === dps.id);
+        if (metodo === 'GET') {
+          const tentativa = tentativas.at(-1);
+          if (!tentativa) return problema(404, 'command-not-found', 'nenhuma tentativa de cancelamento para esta NFS-e');
+          return json(200, { situacao: tentativa.situacao, codigoJustificativa: tentativa.corpo.codigoJustificativa, justificativa: tentativa.corpo.justificativa, motivo: tentativa.motivo, criadaEm: tentativa.criadaEm, concluidaEm: tentativa.concluidaEm });
+        }
+        if (metodo === 'POST') {
+          const chaveCancelamento = cabecalhos['idempotency-key'];
+          if (!chaveCancelamento) return problema(422, 'idempotency-key-required', 'informe o header Idempotency-Key');
+          const c = corpo as { codigoJustificativa?: unknown; justificativa?: unknown };
+          if (!['1', '2', '9'].includes(String(c.codigoJustificativa)) || typeof c.justificativa !== 'string' || c.justificativa.length < 15 || c.justificativa.length > 255 || !PATTERN_TEXTO_SEFAZ.test(c.justificativa))
+            return problema(422, 'cancellation-reason-invalid', 'codigoJustificativa deve ser 1, 2 ou 9, e a justificativa de 15 a 255 caracteres, no envelope da SEFAZ');
+          // O prazo é do município e a plataforma não o confere: a recusa por prazo vem da SEFIN, na tentativa.
+          if (dps.situacao !== 'autorizada') return problema(409, 'nfse-not-cancelable', `a NFS-e está '${dps.situacao}'; só uma NFS-e autorizada pode ser cancelada`);
+          const replay = this.replay(String(chaveCancelamento), corpo);
+          if (replay) return replay;
+          const o = this.criarOperacao('nfse.cancel', cred.emitenteId!, dps.id, c as Record<string, unknown>, String(chaveCancelamento));
+          if (this.modoOperacoes === 'sincrono') this.concluirOperacao(o.id, 'authorized');
+          return json(202, aceiteOperacao(o, `/v1/nfse/${dps.id}/cancelamento`, `/v1/nfse/${dps.id}`));
+        }
+      }
     }
 
     // ---- Emissão e acompanhamento: escopo de emitente. ----
@@ -721,12 +820,12 @@ function detalheDps(d: DpsFalsa) {
     recebidaEm: d.criadoEm,
     emitidaEm: null,
     autorizadaEm: d.autorizadaEm,
-    canceladaEm: null,
-    origemCancelamento: null,
-    justificativaCancelamento: null,
-    substituidaEm: null,
-    substituidaPor: null,
-    substituicao: null,
+    canceladaEm: d.canceladaEm,
+    origemCancelamento: d.origemCancelamento,
+    justificativaCancelamento: d.justificativaCancelamento,
+    substituidaEm: d.substituidaEm,
+    substituidaPor: d.substituidaPor,
+    substituicao: d.substituicao ? { nfse: { id: d.substituicao.original, chave: d.substituicao.chaveOriginal }, codigoJustificativa: d.substituicao.codigoJustificativa, justificativa: d.substituicao.justificativa } : null,
     resumo: {
       tomadorNome: toma?.razaoSocial ?? null,
       tomadorDoc: toma?.cnpj ?? toma?.cpf ?? null,

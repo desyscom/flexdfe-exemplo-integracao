@@ -16,7 +16,7 @@ import { acoesDestinatarios, telaDestinatarios } from './telas/destinatarios.ts'
 import { acoesNovaNota, telaNovaNota } from './telas/nova-nota.ts';
 import { acoesNotas, leituraDacce, leiturasNotas, telaNota, telaNotas } from './telas/notas.ts';
 import { acoesNovaNfse, telaNovaNfse } from './telas/nova-nfse.ts';
-import { acoesNfse, telaNfse, telaNfses } from './telas/nfse.ts';
+import { acoesNfse, leiturasNfse, telaNfse, telaNfses } from './telas/nfse.ts';
 import { acoesInutilizacao, telaInutilizacao } from './telas/inutilizacao.ts';
 import { acoesEventos, telaEventos } from './telas/eventos.ts';
 import { receptorWebhook } from './telas/webhook.ts';
@@ -65,6 +65,7 @@ export function criarApp(deps: Deps): Server {
     ...acoes('/nova-nfse', acoesNovaNfse),
     ['GET /nfse', telaNfses],
     ['GET /nfse/:id', telaNfse],
+    ...Object.entries(leiturasNfse).map(([nome, rota]): [string, Rota] => [`GET /nfse/:id/${nome}`, rota]),
     ...Object.entries(acoesNfse).map(([nome, rota]): [string, Rota] => [`POST /nfse/:id/${nome}`, rota]),
     ['GET /inutilizacao', telaInutilizacao],
     ...acoes('/inutilizacao', acoesInutilizacao),

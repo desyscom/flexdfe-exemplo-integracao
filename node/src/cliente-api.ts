@@ -190,7 +190,31 @@ export type RepresentacaoComando = {
  * vai `numeroDps`. O prestador, o `dhEmi`, o número e o ambiente são da plataforma, e o que vier deles no `documento`
  * é ignorado.
  */
-export type IntakeNfse = { serie: number; numeroDps?: number; documento: Record<string, unknown> };
+export type IntakeNfse = { serie: number; numeroDps?: number; substituicao?: PedidoSubstituicao; documento: Record<string, unknown> };
+
+/**
+ * O pedido de substituição: a NFS-e original, pelo `id` que a plataforma devolveu no aceite dela, e o motivo. A
+ * plataforma monta o grupo `subst` da DPS com a chave da original. Só se substitui NFS-e emitida pela plataforma, e
+ * autorizada no ambiente atual do emitente. O código é `01` desenquadramento do Simples Nacional, `02` enquadramento no
+ * Simples Nacional, `03` inclusão retroativa de imunidade ou isenção, `04` exclusão retroativa de imunidade ou isenção,
+ * `05` rejeição da NFS-e pelo tomador ou intermediário, `99` outros. A justificativa (15 a 255 caracteres, no envelope
+ * da SEFAZ) é obrigatória com o `99`.
+ */
+export type PedidoSubstituicao = { nfse: string; codigoJustificativa: '01' | '02' | '03' | '04' | '05' | '99'; justificativa?: string };
+
+/**
+ * `GET /v1/nfse/{id}/cancelamento`: a última tentativa. Não há `protocolo`: o evento da NFS-e não tem. O cancelamento
+ * feito fora da plataforma não gera tentativa: aparece no detalhe da NFS-e, depois de uma consulta.
+ */
+export type TentativaCancelamentoNfse = {
+  situacao: 'processando' | 'registrada' | 'rejeitada' | 'falha' | 'reconciliando' | 'pendente-registro';
+  /** `1` erro na emissão, `2` serviço não prestado, `9` outros. */
+  codigoJustificativa: string;
+  justificativa: string;
+  motivo: string | null;
+  criadaEm: string;
+  concluidaEm: string | null;
+};
 
 /**
  * O que o documento informou e o que só a SEFIN calcula. Os campos calculados são nulos antes da `autorizada`, ou
@@ -445,6 +469,35 @@ export function criarClienteApi(opcoes: Opcoes) {
      */
     lerFeedNfse: (cred: Credencial, since: number, limit = 100) =>
       chamar<FeedResposta>(cred, 'GET', `/v1/nfse/events?since=${since}&limit=${limit}`),
+
+    /** O XML como a SEFIN o devolveu, com a DPS dentro. Só existe depois da `autorizada`; antes é `409 nfse-xml-unavailable`. */
+    baixarXmlNfse: (cred: Credencial, id: string) => baixar(cred, `/v1/nfse/${id}/xml`, 'application/xml'),
+
+    /**
+     * O DANFSe: a plataforma o gera a cada pedido, a partir do XML. Serve a autorizada, a cancelada e a substituída,
+     * cada uma com a marca da situação atual; antes de a DPS virar NFS-e é `409 nfse-danfse-unavailable`.
+     */
+    baixarDanfse: (cred: Credencial, id: string) => baixar(cred, `/v1/nfse/${id}/danfse`, 'application/pdf'),
+
+    /**
+     * Procura na SEFIN o que ela sabe da DPS ou da NFS-e: numa DPS que não virou NFS-e, a nota gerada por ela; numa
+     * NFS-e, os cancelamentos feitos fora da plataforma (Emissor Nacional, análise fiscal, ofício, substituição).
+     * Responde `202`; o resultado vem ao reler `GET /v1/nfse/{id}`. Não reenvia nada, não leva `Idempotency-Key` e não
+     * gera evento no feed.
+     */
+    consultarNfse: (cred: Credencial, id: string) => chamar<AceiteOperacao>(cred, 'POST', `/v1/nfse/${id}/consulta`),
+
+    /**
+     * Só a NFS-e `autorizada` cancela (senão `409 nfse-not-cancelable`). Vão o código (`1` erro na emissão, `2` serviço
+     * não prestado, `9` outros) e a justificativa (15–255, no envelope da SEFAZ; senão `422 cancellation-reason-invalid`).
+     * O prazo é do município e a plataforma não o confere: a recusa por prazo vem da SEFIN, na tentativa `rejeitada`.
+     * Exige `Idempotency-Key`. O item do feed (`nfse.cancel`) sai sem `outcome`.
+     */
+    cancelarNfse: (cred: Credencial, id: string, codigoJustificativa: string, justificativa: string, idempotencyKey: string) =>
+      chamar<AceiteOperacao>(cred, 'POST', `/v1/nfse/${id}/cancelamento`, { codigoJustificativa, justificativa }, { 'Idempotency-Key': idempotencyKey }),
+
+    /** A tentativa de cancelamento, registrada ou não. `404` enquanto nenhuma foi feita. */
+    lerCancelamentoNfse: (cred: Credencial, id: string) => chamar<TentativaCancelamentoNfse>(cred, 'GET', `/v1/nfse/${id}/cancelamento`),
 
     /** A nota enriquecida: `situacao`, chave, protocolo, marcos. É a leitura que fecha o que o feed anunciou. */
     lerNota: (cred: Credencial, id: string) => chamar<NotaDetalhe>(cred, 'GET', `/v1/nfe/${id}`),

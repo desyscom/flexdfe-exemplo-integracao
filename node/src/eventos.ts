@@ -43,6 +43,7 @@ export async function aplicarEvento(aplicador: Aplicador, evento: EventoFeed, or
   if (evento.type === 'nfe.emit') efeito = await aplicarEmissao(aplicador, evento, origem);
   else if (evento.type === 'nfe.cancel' || evento.type === 'nfe.cce' || evento.type === 'nfe.inutiliza') efeito = await aplicarOperacao(aplicador, evento, origem);
   else if (evento.type === 'nfse.emit') efeito = await aplicarEmissaoNfse(aplicador, evento, origem);
+  else if (evento.type === 'nfse.cancel') efeito = await aplicarOperacaoNfse(aplicador, evento, origem);
   else efeito = `ignorado: tipo ${evento.type} não é tratado por esta tela`;
 
   banco.gravarEvento({ seq: evento.seq, commandId: evento.commandId, type: evento.type, status: evento.status, outcome: evento.outcome, origem, efeito });
@@ -94,7 +95,40 @@ async function aplicarEmissaoNfse({ banco, cliente, operacional }: Aplicador, ev
     confirmadoPor: origem,
     ultimoResultado: JSON.stringify(detalhe),
   });
-  return `aplicado: NFS-e ${nfse.id} ${detalhe.situacao} (${evento.status}${evento.outcome ? '/' + evento.outcome : ''})`;
+  const efeito = `aplicado: NFS-e ${nfse.id} ${detalhe.situacao} (${evento.status}${evento.outcome ? '/' + evento.outcome : ''})`;
+
+  // A substituta autorizada muda a ORIGINAL: a SEFIN gera a substituta e cancela a original no mesmo envio, e quem
+  // a emitiu é esta aplicação, que só fica sabendo relendo-a. A original é de outro comando, sem evento próprio.
+  const original = nfse.substitui === null ? null : banco.lerNfse(nfse.substitui);
+  if (original?.commandId && detalhe.situacao === 'autorizada') {
+    const relida = (await cliente.lerNfse(operacional, original.commandId)).corpo;
+    banco.gravarDesfechoNfse(original.id, { status: original.status ?? relida.status, outcome: original.outcome, situacao: relida.situacao, ultimoResultado: JSON.stringify(relida) });
+    return `${efeito}; NFS-e ${original.id} ${relida.situacao}`;
+  }
+  return efeito;
+}
+
+/**
+ * Fecha uma operação sobre a NFS-e: o cancelamento. O item do feed (`nfse.cancel`) sai SEM `outcome`, então quem diz
+ * como a tentativa terminou é a leitura dela (`registrada`, `rejeitada`, `falha`), e o efeito na NFS-e vem de reler
+ * a NFS-e. A consulta não tem evento.
+ */
+async function aplicarOperacaoNfse({ banco, cliente, operacional }: Aplicador, evento: EventoFeed, origem: Evento['origem']): Promise<string> {
+  const operacao = banco.lerOperacaoPorComando(evento.commandId);
+  if (!operacao || operacao.nfseId === null) return 'ignorado: comando não é de uma operação de NFS-e deste banco local';
+  if (!ehTerminal(evento.status)) {
+    banco.gravarDesfechoOperacao(operacao.id, { status: evento.status, outcome: evento.outcome, confirmadoPor: origem });
+    return `aplicado: ${operacao.tipo} ${operacao.id} segue ${evento.status}`;
+  }
+  const nfse = banco.lerNfse(operacao.nfseId);
+  if (!nfse?.commandId) return `ignorado: a NFS-e ${operacao.nfseId} da operação não tem comando na API`;
+
+  const tentativa = (await cliente.lerCancelamentoNfse(operacional, nfse.commandId)).corpo;
+  banco.gravarDesfechoOperacao(operacao.id, { status: evento.status, outcome: evento.outcome, confirmadoPor: origem, situacao: tentativa.situacao, ultimoResultado: JSON.stringify(tentativa) });
+  // O cancelamento registrado muda a SITUAÇÃO da NFS-e (autorizada → cancelada), não o comando de emissão.
+  const detalhe = (await cliente.lerNfse(operacional, nfse.commandId)).corpo;
+  banco.gravarDesfechoNfse(nfse.id, { status: nfse.status ?? detalhe.status, outcome: nfse.outcome, situacao: detalhe.situacao, ultimoResultado: JSON.stringify(detalhe) });
+  return `aplicado: cancelamento ${operacao.id} ${tentativa.situacao}; NFS-e ${nfse.id} ${detalhe.situacao}`;
 }
 
 /**

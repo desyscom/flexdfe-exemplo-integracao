@@ -125,6 +125,8 @@ export type Nfse = {
   corpoEnviado: string;
   /** O último corpo que a API devolveu sobre esta NFS-e, tal como veio. */
   ultimoResultado: string | null;
+  /** A NFS-e local que ESTA substitui: o pedido de substituição leva o id que a plataforma devolveu no aceite dela. */
+  substitui: number | null;
   criadoEm: string;
 };
 
@@ -242,6 +244,7 @@ export class Banco {
         idempotency_key TEXT NOT NULL UNIQUE,
         corpo_enviado TEXT NOT NULL,
         ultimo_resultado TEXT,
+        substitui INTEGER REFERENCES nfse (id),
         criado_em TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       );
 
@@ -518,8 +521,10 @@ export class Banco {
   }
 
   /** A NFS-e nasce aqui, ANTES do `POST /v1/nfse`: com a chave e o corpo, sem `command_id`. */
-  criarNfsePendente(n: { serie: number; idempotencyKey: string; corpoEnviado: string }): number {
-    const r = this.db.prepare('INSERT INTO nfse (serie, idempotency_key, corpo_enviado) VALUES (?, ?, ?)').run(n.serie, n.idempotencyKey, n.corpoEnviado);
+  criarNfsePendente(n: { serie: number; idempotencyKey: string; corpoEnviado: string; substitui?: number }): number {
+    const r = this.db
+      .prepare('INSERT INTO nfse (serie, idempotency_key, corpo_enviado, substitui) VALUES (?, ?, ?, ?)')
+      .run(n.serie, n.idempotencyKey, n.corpoEnviado, n.substitui ?? null);
     return Number(r.lastInsertRowid);
   }
 
@@ -688,6 +693,7 @@ const nfseDaLinha = (l: Record<string, unknown>): Nfse => ({
   idempotencyKey: String(l.idempotency_key),
   corpoEnviado: String(l.corpo_enviado),
   ultimoResultado: (l.ultimo_resultado as string | null) ?? null,
+  substitui: l.substitui == null ? null : Number(l.substitui),
   criadoEm: String(l.criado_em),
 });
 
