@@ -1,7 +1,7 @@
-// A justificativa do cancelamento e da inutilização e o texto da carta de correção obedecem à mesma
-// restrição de leiaute da SEFAZ: tamanho mínimo e máximo, só letras (acentuadas inclusive), dígitos,
+// A justificativa do cancelamento (NF-e e NFS-e), a da inutilização, a da substituição da NFS-e e o texto da carta
+// de correção obedecem à mesma restrição de leiaute da SEFAZ: tamanho mínimo e máximo, só letras (acentuadas inclusive), dígitos,
 // espaço e pontuação simples, sem espaço no início ou no fim. A API recusa com `422` na hora
-// (`cancellation-reason-invalid`, `correction-text-invalid`); conferir aqui é mais barato do que
+// (`cancellation-reason-invalid`, que a NFS-e também usa, e `correction-text-invalid`); conferir aqui é mais barato do que
 // gastar uma chamada, e mostra ao programador o que a SEFAZ aceita antes de ele esbarrar nela.
 //
 // A expressão é a mesma da Referência: `^(?:[!-ÿ][ -ÿ]*[!-ÿ]|[!-ÿ])$`. O intervalo `!`–`ÿ` é o
@@ -23,7 +23,7 @@ export function motivoTextoInvalido(texto: string, nome: string, minimo: number,
 }
 
 export const LIMITES = {
-  /** `justificativa` do cancelamento e `xJust` da inutilização. */
+  /** `justificativa` do cancelamento (NF-e e NFS-e) e da substituição da NFS-e, e `xJust` da inutilização. */
   justificativa: { minimo: 15, maximo: 255 },
   /** `xCorrecao` da carta de correção. */
   correcao: { minimo: 15, maximo: 1000 },

@@ -75,10 +75,39 @@ export async function ateSeries(c: Cenario, emitente: Record<string, string> = E
   await c.post('/emitente/certificado');
   await c.post('/emitente/ativar');
   await c.post('/emitente/credencial');
-  await c.post('/emitente/serie', { modelo: '55', serie: '1' });
-  await c.post('/emitente/serie', { modelo: '65', serie: '1' });
+  await c.post('/emitente/serie', { documento: '55', serie: '1' });
+  await c.post('/emitente/serie', { documento: '65', serie: '1' });
   await c.post('/emitente/webhook', { url: 'https://tunel.exemplo.com/webhook' });
   return c.banco.configuracao().emitenteId!;
+}
+
+/** Percorre a tela Emitente até a série 1 de DPS (a NFS-e), com o webhook. A NF-e e a NFC-e não ganham série. */
+export async function ateSerieDps(c: Cenario, emitente: Record<string, string> = EMITENTE_NFSE): Promise<string> {
+  const cadastro = await c.post('/emitente/cadastrar', emitente);
+  if (!/Emitente cadastrado/.test(cadastro.html)) throw new Error('cadastro falhou: ' + cadastro.texto.slice(0, 500));
+  await c.post('/emitente/certificado');
+  await c.post('/emitente/ativar');
+  await c.post('/emitente/credencial');
+  const serie = await c.post('/emitente/serie', { documento: 'dps', serie: '1' });
+  if (!/provisionada/.test(serie.html)) throw new Error('série de DPS falhou: ' + serie.texto.slice(0, 500));
+  await c.post('/emitente/webhook', { url: 'https://tunel.exemplo.com/webhook' });
+  return c.banco.configuracao().emitenteId!;
+}
+
+/** Um pedido de NFS-e: um tomador PJ, um serviço de R$ 1.500,00 e, para ME/EPP, o percentual do Simples. */
+export function pedidoNfse(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    serie: '1',
+    toma_documento: '11.444.777/0001-61',
+    toma_nome: 'Cliente Exemplo Ltda',
+    dcompet: '2026-09-01',
+    clocprestacao: '4106902',
+    ctribnac: '010701',
+    xdescserv: 'Suporte técnico em sistemas - setembro/2026',
+    vserv: '1.500,00',
+    ptottribsn: '6',
+    ...extra,
+  };
 }
 
 /** Um pedido de NF-e 55 com o destinatário semeado, um item, pagamento fechado. */
@@ -101,3 +130,6 @@ export const EMITENTE_VALIDO = {
   uf: 'rs',
   cep: '95630-000',
 };
+
+/** O emitente das telas de NFS-e: Curitiba, Simples Nacional, com a IM do CNC (a API tira a pontuação ao gravar). */
+export const EMITENTE_NFSE = { ...EMITENTE_VALIDO, cod_municipio: '4106902', municipio: 'Curitiba', uf: 'pr', cep: '80010-000', inscricao_municipal: '01.234-5' };

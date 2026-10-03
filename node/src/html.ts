@@ -40,6 +40,8 @@ const TELAS: [caminho: string, nome: string][] = [
   ['/destinatarios', 'Destinatários'],
   ['/nova-nota', 'Nova nota'],
   ['/notas', 'Notas'],
+  ['/nova-nfse', 'Nova NFS-e'],
+  ['/nfse', 'NFS-e'],
   ['/inutilizacao', 'Inutilização'],
   ['/eventos', 'Eventos'],
 ];

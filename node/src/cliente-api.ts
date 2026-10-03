@@ -60,8 +60,8 @@ export type Opcoes = {
 // ---- Tipos das respostas que este exemplo lê. Só os campos usados; a Referência tem todos. ----
 
 export type Contexto =
-  | { escopo: 'emitente'; emitente: { id: string; cnpj: string; razao_social: string; ambiente: string } }
-  | { escopo: 'integrador'; integradorId: string; emitentes: { id: string; cnpj: string; razao_social: string }[] }
+  | { escopo: 'emitente'; emitente: { id: string; cnpj: string; razao_social: string; ambiente: string; tipos_documento: TipoDocumento[] } }
+  | { escopo: 'integrador'; integradorId: string; emitentes: { id: string; cnpj: string; razao_social: string; tipos_documento: TipoDocumento[] }[] }
   | { escopo: string; [k: string]: unknown };
 
 export type Certificado = {
@@ -74,10 +74,13 @@ export type Certificado = {
 
 export type Emitente = {
   id: string;
+  /** 14 caracteres: as 12 primeiras podem ser letras maiúsculas (CNPJ alfanumérico), as 2 últimas são dígitos. */
   cnpj: string;
   razao_social: string;
   nome_fantasia: string | null;
   inscricao_estadual: string;
+  /** A IM do CNPJ no município (`prest.im` da DPS). Só a NFS-e a usa; `null` quando não informada. */
+  inscricao_municipal: string | null;
   crt: 1 | 2 | 3 | 4;
   uf: string;
   municipio: string;
@@ -85,6 +88,8 @@ export type Emitente = {
   ambiente: 'homologacao' | 'producao';
   ativo: boolean;
   modelos: number[];
+  /** Os documentos habilitados, derivados das séries ativas do ambiente atual: não é um campo editável. */
+  tipos_documento: TipoDocumento[];
   certificado: Certificado | null;
   webhook: { url: string; ativo: boolean } | null;
 };
@@ -94,6 +99,8 @@ export type CriacaoEmitente = {
   razao_social: string;
   nome_fantasia?: string | null;
   inscricao_estadual: string;
+  /** Opcional: quem só emite NF-e não a preenche. A API tira espaço e pontuação antes de gravar. */
+  inscricao_municipal?: string | null;
   crt: 1 | 2 | 3 | 4;
   ambiente: 'homologacao' | 'producao';
   logradouro: string;
@@ -116,8 +123,38 @@ export type CredencialCunhada = {
   secret: string;
 };
 
-/** A série é por ambiente: a série 1 de homologação e a de produção são duas, cada uma com o seu próximo número. */
-export type Serie = { ambiente: 'homologacao' | 'producao'; modelo: 55 | 65; serie: number; mode: 'managed' | 'external'; active: boolean; nextNumber?: number };
+/** O documento que uma série numera: `dps` é a declaração da NFS-e, e a plataforma numera a DPS, não o número da NFS-e. */
+export type TipoDocumento = 'nfe' | 'nfce' | 'dps';
+
+/**
+ * A série é por ambiente e por documento: a série 1 de homologação e a de produção são duas, e a série 1 de NF-e
+ * e a série 1 de DPS também, cada uma com o seu próximo número. O `modelo` só existe na NF-e (55) e na NFC-e (65):
+ * a DPS não tem modelo, e vem sem o campo.
+ */
+export type Serie = {
+  ambiente: 'homologacao' | 'producao';
+  tipoDocumento: TipoDocumento;
+  modelo?: 55 | 65;
+  serie: number;
+  mode: 'managed' | 'external';
+  active: boolean;
+  nextNumber?: number;
+};
+
+/**
+ * O que o ADN respondeu sobre o convênio de um município, sem veredito nosso por cima. O `veredito` diz se a
+ * parametrização veio, e não se o município aderiu ao Sistema Nacional: nenhum dos dois valores é "o município
+ * está fora". `parametros` é o grupo que o ADN publicou, verbatim, e é `null` em `sem-parametrizacao`.
+ */
+export type ConsultaConvenio = {
+  id: string;
+  consultadoEm: string;
+  codigoMunicipio: string;
+  veredito: 'parametrizado' | 'sem-parametrizacao';
+  httpStatus: number | null;
+  mensagem: string | null;
+  parametros: Record<string, string> | null;
+};
 
 export type Webhook = {
   url: string;
@@ -146,6 +183,87 @@ export type RepresentacaoComando = {
   attempts: number;
   criadoEm: string;
   atualizadoEm: string;
+};
+
+/**
+ * Corpo do `POST /v1/nfse`, no molde do da NF-e: o roteamento no topo, a DPS em `documento`. Em série managed não
+ * vai `numeroDps`. O prestador, o `dhEmi`, o número e o ambiente são da plataforma, e o que vier deles no `documento`
+ * é ignorado.
+ */
+export type IntakeNfse = { serie: number; numeroDps?: number; substituicao?: PedidoSubstituicao; documento: Record<string, unknown> };
+
+/**
+ * O pedido de substituição: a NFS-e original, pelo `id` que a plataforma devolveu no aceite dela, e o motivo. A
+ * plataforma monta o grupo `subst` da DPS com a chave da original. Só se substitui NFS-e emitida pela plataforma, e
+ * autorizada no ambiente atual do emitente. O código é `01` desenquadramento do Simples Nacional, `02` enquadramento no
+ * Simples Nacional, `03` inclusão retroativa de imunidade ou isenção, `04` exclusão retroativa de imunidade ou isenção,
+ * `05` rejeição da NFS-e pelo tomador ou intermediário, `99` outros. A justificativa (15 a 255 caracteres, no envelope
+ * da SEFAZ) é obrigatória com o `99`.
+ */
+export type PedidoSubstituicao = { nfse: string; codigoJustificativa: '01' | '02' | '03' | '04' | '05' | '99'; justificativa?: string };
+
+/**
+ * `GET /v1/nfse/{id}/cancelamento`: a última tentativa. Não há `protocolo`: o evento da NFS-e não tem. O cancelamento
+ * feito fora da plataforma não gera tentativa: aparece no detalhe da NFS-e, depois de uma consulta.
+ */
+export type TentativaCancelamentoNfse = {
+  situacao: 'processando' | 'registrada' | 'rejeitada' | 'falha' | 'reconciliando' | 'pendente-registro';
+  /** `1` erro na emissão, `2` serviço não prestado, `9` outros. */
+  codigoJustificativa: string;
+  justificativa: string;
+  motivo: string | null;
+  criadaEm: string;
+  concluidaEm: string | null;
+};
+
+/**
+ * O que o documento informou e o que só a SEFIN calcula. Os campos calculados são nulos antes da `autorizada`, ou
+ * quando a NFS-e não os traz.
+ */
+export type ResumoNfse = {
+  tomadorNome: string | null;
+  tomadorDoc: string | null;
+  competencia: string | null;
+  valorServico: number | null;
+  codigoTributacaoNacional: string | null;
+  descricaoServico: string | null;
+  municipioIncidencia: string | null;
+  nomeMunicipioIncidencia: string | null;
+  descricaoTributacaoNacional: string | null;
+  valorIssqn: number | null;
+  valorRetido: number | null;
+  valorLiquido: number | null;
+};
+
+/**
+ * O `GET /v1/nfse/{id}`, e o `200` de um `wait` resolvido na emissão: a representação do comando mais a `situacao`
+ * (com os nomes da NF-e), o número da DPS, a NFS-e gerada e o `resumo`. É outra família: o `id` de uma NF-e
+ * responde `404` aqui.
+ */
+export type DetalheNfse = {
+  id: string;
+  status: string;
+  outcome: 'authorized' | 'rejected' | null;
+  serie: number;
+  numeroDps: number | null;
+  /** `chave` na autorização; `motivo` na rejeição, na falha e no bloqueio. */
+  result: Record<string, unknown> | null;
+  attempts: number;
+  criadoEm: string;
+  atualizadoEm: string;
+  situacao: string;
+  numeroNfse: number | null;
+  /** Anulável também na `autorizada`: um provedor municipal pode não atribuí-la. */
+  chave: string | null;
+  recebidaEm: string;
+  emitidaEm: string | null;
+  autorizadaEm: string | null;
+  canceladaEm: string | null;
+  origemCancelamento: 'pedido' | 'analise-fiscal' | 'oficio' | null;
+  justificativaCancelamento: string | null;
+  substituidaEm: string | null;
+  substituidaPor: { id: string | null; chave: string } | null;
+  resumo: ResumoNfse;
 };
 
 /** A correção que o fisco considera hoje: a última carta registrada. A próxima carta é construída sobre ela. */
@@ -300,14 +418,26 @@ export function criarClienteApi(opcoes: Opcoes) {
     lerConfigEmitente: (cred: Credencial, id: string) =>
       chamar<Record<string, unknown>>(cred, 'GET', `/v1/emitentes/${id}/config`),
 
+    /**
+     * NFS-e: pergunta ao Ambiente de Dados Nacional (ADN) que parâmetros de convênio um município publicou. É por
+     * código de município (qualquer um serve, não só o do emitente) e síncrona: a resposta vem no corpo do `200`.
+     * O certificado do emitente abre o mTLS com o ADN, daí a consulta pender de um emitente; sem ele é `422`.
+     * É leitura: não leva `Idempotency-Key`, e a rota aceita a credencial de integrador e a de emitente. Antes da
+     * ativação só serve a de integrador (a do emitente é recusada com 403 até ele ser ativado). Não bloqueia emissão nenhuma.
+     * Indisponibilidade não é negativa: o ADN sem resposta é `503`, e a consulta que não concluiu na janela é `504`;
+     * os dois se repetem.
+     */
+    consultarConvenio: (cred: Credencial, emitenteId: string, codigoMunicipio: string) =>
+      chamar<ConsultaConvenio>(cred, 'POST', `/v1/emitentes/${emitenteId}/consultas-convenio`, { codigoMunicipio }),
+
     // ---- Operação: escopo de EMITENTE (credencial operacional). ----
 
     /**
-     * Série `managed`: a plataforma numera, e a emissão não manda `numero`. Uma por emitente, ambiente, modelo e
+     * Série `managed`: a plataforma numera, e a emissão não manda `numero`. Uma por emitente, ambiente, documento e
      * série. Sem `ambiente` no corpo, ela nasce no ambiente atual do emitente, que neste exemplo é homologação.
      */
-    provisionarSerie: (cred: Credencial, modelo: 55 | 65, serie: number) =>
-      chamar<Serie>(cred, 'POST', '/v1/series', { modelo, serie, mode: 'managed' }),
+    provisionarSerie: (cred: Credencial, documento: 55 | 65 | 'dps', serie: number) =>
+      chamar<Serie>(cred, 'POST', '/v1/series', { ...(documento === 'dps' ? { tipoDocumento: documento } : { modelo: documento }), serie, mode: 'managed' }),
 
     /** As séries de um ambiente: sem `?ambiente=`, as do ambiente atual. O corpo diz qual, mesmo com a lista vazia. */
     listarSeries: (cred: Credencial) => chamar<{ ambiente: Serie['ambiente']; series: Serie[] }>(cred, 'GET', '/v1/series'),
@@ -320,6 +450,56 @@ export function criarClienteApi(opcoes: Opcoes) {
      */
     emitirNfe: (cred: Credencial, corpo: IntakeNfe, idempotencyKey: string, waitMs: number) =>
       chamar<RepresentacaoComando | AceiteComando>(cred, 'POST', `/v1/nfe?wait=${waitMs}`, corpo, { 'Idempotency-Key': idempotencyKey }),
+
+    /**
+     * NFS-e: enfileira a DPS. Mesmo molde da emissão da NF-e: `Idempotency-Key` obrigatória (uma por intenção de
+     * emissão, gravada antes de chamar) e `wait` opcional, com teto de 15000. Desfecho dentro da janela vem como `200`
+     * com o detalhe da NFS-e; fora dela, `202` com o aceite. Distinga pela presença de `outcome`, não pelo status.
+     * A DPS rejeitada pode ser reaberta no mesmo `numeroDps` (`reabrir: true`, com chave nova); este exemplo não
+     * usa isso: emitir de novo, sem o `reabrir`, toma o próximo número.
+     */
+    emitirNfse: (cred: Credencial, corpo: IntakeNfse, idempotencyKey: string, waitMs: number) =>
+      chamar<DetalheNfse | AceiteComando>(cred, 'POST', `/v1/nfse?wait=${waitMs}`, corpo, { 'Idempotency-Key': idempotencyKey }),
+
+    /** A NFS-e: `situacao`, número da DPS, número e chave da NFS-e e o `resumo` que a SEFIN calculou. */
+    lerNfse: (cred: Credencial, id: string) => chamar<DetalheNfse>(cred, 'GET', `/v1/nfse/${id}`),
+
+    /**
+     * O feed da família: o mesmo protocolo de cursor do da NF-e, só com os comandos `nfse.*`. As duas famílias dividem a
+     * numeração do `seq`, então cada feed enxerga buracos que são eventos do outro, e cada um tem o SEU cursor.
+     */
+    lerFeedNfse: (cred: Credencial, since: number, limit = 100) =>
+      chamar<FeedResposta>(cred, 'GET', `/v1/nfse/events?since=${since}&limit=${limit}`),
+
+    /** O XML como a SEFIN o devolveu, com a DPS dentro. Só existe depois da `autorizada`; antes é `409 nfse-xml-unavailable`. */
+    baixarXmlNfse: (cred: Credencial, id: string) => baixar(cred, `/v1/nfse/${id}/xml`, 'application/xml'),
+
+    /**
+     * O DANFSe: a plataforma o gera a cada pedido, a partir do XML. Serve a autorizada, a cancelada e a substituída:
+     * a cancelada leva a marca "CANCELADA", e a substituída, "SUBSTITUÍDA"; a de produção restrita (a homologação deste
+     * exemplo) leva, no cabeçalho, "NFS-e SEM VALIDADE JURÍDICA". Antes de a DPS virar NFS-e é `409 nfse-danfse-unavailable`.
+     */
+    baixarDanfse: (cred: Credencial, id: string) => baixar(cred, `/v1/nfse/${id}/danfse`, 'application/pdf'),
+
+    /**
+     * Procura na SEFIN o que ela sabe da DPS ou da NFS-e: numa DPS que não virou NFS-e, a nota gerada por ela; numa
+     * NFS-e, os cancelamentos feitos fora da plataforma (Emissor Nacional, análise fiscal, ofício, substituição).
+     * Responde `202`; o resultado vem ao reler `GET /v1/nfse/{id}`. Não reenvia nada, não leva `Idempotency-Key` e não
+     * gera evento no feed.
+     */
+    consultarNfse: (cred: Credencial, id: string) => chamar<AceiteOperacao>(cred, 'POST', `/v1/nfse/${id}/consulta`),
+
+    /**
+     * Só a NFS-e `autorizada` cancela (senão `409 nfse-not-cancelable`). Vão o código (`1` erro na emissão, `2` serviço
+     * não prestado, `9` outros) e a justificativa (15–255, no envelope da SEFAZ; senão `422 cancellation-reason-invalid`).
+     * O prazo é do município e a plataforma não o confere: a recusa por prazo vem da SEFIN, na tentativa `rejeitada`.
+     * Exige `Idempotency-Key`. O item do feed (`nfse.cancel`) sai sem `outcome`.
+     */
+    cancelarNfse: (cred: Credencial, id: string, codigoJustificativa: string, justificativa: string, idempotencyKey: string) =>
+      chamar<AceiteOperacao>(cred, 'POST', `/v1/nfse/${id}/cancelamento`, { codigoJustificativa, justificativa }, { 'Idempotency-Key': idempotencyKey }),
+
+    /** A tentativa de cancelamento, registrada ou não. `404` enquanto nenhuma foi feita. */
+    lerCancelamentoNfse: (cred: Credencial, id: string) => chamar<TentativaCancelamentoNfse>(cred, 'GET', `/v1/nfse/${id}/cancelamento`),
 
     /** A nota enriquecida: `situacao`, chave, protocolo, marcos. É a leitura que fecha o que o feed anunciou. */
     lerNota: (cred: Credencial, id: string) => chamar<NotaDetalhe>(cred, 'GET', `/v1/nfe/${id}`),

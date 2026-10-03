@@ -1,6 +1,6 @@
 # Exemplo de integração com o Flex DFe
 
-Uma aplicação mínima, para rodar na sua máquina, que percorre o ciclo inteiro de um emitente na API do [Flex DFe](https://flexdfe.com.br): cadastro, certificado, série, webhook, emissão de NF-e e NFC-e em homologação, acompanhamento pelo feed de eventos, XML, DANFE, consulta, cancelamento, carta de correção com o DACCE e inutilização.
+Uma aplicação mínima, para rodar na sua máquina, que percorre o ciclo inteiro de um emitente na API do [Flex DFe](https://flexdfe.com.br): cadastro, certificado, série, webhook, emissão de NF-e, NFC-e e NFS-e Padrão Nacional em homologação, acompanhamento pelo feed de eventos, XML, DANFE e DANFSe, consulta, cancelamento, substituição de NFS-e, carta de correção com o DACCE e inutilização.
 
 É **código para ler**, não biblioteca para depender. Cada chamada HTTP fica num único arquivo, uma função por rota, escrita para que um programador de qualquer linguagem a leia como pseudocódigo. A tela existe para dar contexto às chamadas, não para ser produto.
 
@@ -8,7 +8,7 @@ Uma aplicação mínima, para rodar na sua máquina, que percorre o ciclo inteir
 
 | Pasta | Linguagem | Estado |
 |---|---|---|
-| [`node/`](node/) | TypeScript em Node, sem framework, sem dependência nativa | completa: testada contra a API na tag `v0.3.1` |
+| [`node/`](node/) | TypeScript em Node, sem framework, sem dependência nativa | completa: testada contra a API na tag `v0.3.1`. O fluxo da NFS-e acompanha a `v0.5.0` e ainda não foi rodado contra a API de verdade, e a tela Emitente já exige a `v0.4.0` ou mais nova |
 
 Outras linguagens entram ao lado, cada uma na sua pasta, sem mover a primeira. Cada implementação declara no próprio README a tag da API contra a qual foi testada.
 

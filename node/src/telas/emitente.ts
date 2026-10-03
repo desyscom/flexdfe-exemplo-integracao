@@ -12,6 +12,15 @@
 // de gestão é 403 emitente-scope-required. A tela só habilita o passo seguinte quando o anterior
 // existe, para o programador ver a dependência antes de esbarrar nela.
 //
+// A NFS-e pede três coisas a mais, numa seção à parte no fim da tela, e cada uma tem o seu lugar na ordem:
+//
+//   A. Inscrição municipal   PATCH /v1/emitentes/{id}                       gestão  → no cadastro (passo 1) ou depois
+//   B. Convênio              POST /v1/emitentes/{id}/consultas-convenio     gestão, depois operacional → entre o certificado e a ativação
+//   C. Série de DPS          POST /v1/series  { "tipoDocumento": "dps" }    operacional → o próprio passo 5
+//
+// O convênio só é leitura e não bloqueia emissão nenhuma. Antes da ativação ele vai com a credencial de gestão,
+// porque a do emitente só passa depois dela (antes, a API a recusa com 403); com a operacional já guardada, vai com ela.
+//
 // Os passos 1 a 4 são o ONBOARDING de um emitente novo, e existem porque um integrador precisa
 // fazê-lo pela API. Quem já tem o emitente pronto no painel — cadastrado, com certificado, ativo e
 // com uma credencial operacional cunhada lá — não repete nada disso: informa a credencial no
@@ -42,6 +51,8 @@ export const acoesEmitente: Record<string, Rota> = {
   credencial: async (ctx) => renderizar(ctx, await cunharCredencial(ctx)),
   serie: async (ctx) => renderizar(ctx, await provisionarSerie(ctx)),
   webhook: async (ctx) => renderizar(ctx, await definirWebhook(ctx)),
+  'inscricao-municipal': async (ctx) => renderizar(ctx, await gravarInscricaoMunicipal(ctx)),
+  convenio: async (ctx) => renderizar(ctx, await consultarConvenio(ctx)),
 };
 
 // ---------------------------------------------------------------- ações
@@ -49,10 +60,13 @@ export const acoesEmitente: Record<string, Rota> = {
 async function cadastrar({ form, config, banco, cliente }: Contexto): Promise<Resultado> {
   const campo = (nome: string) => form.get(nome)?.trim() ?? '';
   const dados: CriacaoEmitente = {
-    cnpj: campo('cnpj').replace(/\D/g, ''),
+    // CNPJ alfanumérico: só a pontuação sai. Tirar tudo que não é dígito apagaria as letras.
+    cnpj: campo('cnpj').replace(/[^0-9A-Za-z]/g, '').toUpperCase(),
     razao_social: campo('razao_social'),
     nome_fantasia: campo('nome_fantasia') || null,
     inscricao_estadual: campo('inscricao_estadual') || 'ISENTO',
+    // Como foi digitada: a API tira o espaço e a pontuação antes de gravar.
+    inscricao_municipal: campo('inscricao_municipal') || null,
     crt: Number(campo('crt')) as 1 | 2 | 3 | 4,
     // Este exemplo é de homologação. Promover a produção é ato do cliente, no painel.
     ambiente: 'homologacao',
@@ -68,6 +82,8 @@ async function cadastrar({ form, config, banco, cliente }: Contexto): Promise<Re
   try {
     const { corpo } = await cliente.criarEmitente(config.gestao, dados);
     banco.gravarEmitenteId(corpo.id);
+    // A ficha da API não traz o código IBGE do município: quem cadastra o guarda, para o serviço da NFS-e e o convênio.
+    banco.gravarCodMunicipio(dados.cod_municipio);
     // O destinatário semeado muda para o município do emitente: a primeira nota sai como venda interna.
     // Venda interestadual a consumidor final exige o grupo do DIFAL, que este exemplo não monta.
     banco.alinharDestinatarioSemente({ codMunicipio: dados.cod_municipio, municipio: dados.municipio, uf: dados.uf });
@@ -97,7 +113,13 @@ async function vincular({ form, banco, cliente }: Contexto): Promise<Resultado> 
   try {
     contexto = (await cliente.contexto(credencial)).corpo;
   } catch (erro) {
-    return resultadoDeErro('A API não aceitou a credencial', erro);
+    const r = resultadoDeErro('A API não aceitou a credencial', erro);
+    // O 403 sem `type` é a autenticação recusando uma credencial que existe: o caso mais comum é a de um emitente que
+    // ainda é rascunho, porque a de emitente só passa depois do certificado e da ativação.
+    if (r && erro instanceof ErroApi && erro.status === 403 && !erro.type) {
+      return { ...r, detalhe: `${r.detalhe} O caso mais comum é o emitente que ainda é rascunho: a credencial dele é recusada com 403 enquanto ele não tem o certificado e a ativação. Ative-o antes, no painel, ou pelos passos 2 e 3 com a credencial de gestão do .env.` };
+    }
+    return r;
   }
   if (!ehDeEmitente(contexto)) {
     return {
@@ -124,12 +146,13 @@ async function vincular({ form, banco, cliente }: Contexto): Promise<Resultado> 
   const foraDaUf = semente && semente.uf !== emitente.uf
     ? ` O destinatário semeado está em ${semente.municipio}/${semente.uf} e o emitente em ${emitente.municipio}/${emitente.uf}: ajuste-o na tela Destinatários antes da primeira nota, porque venda interestadual a consumidor final exige o grupo do DIFAL, que este exemplo não monta.`
     : '';
-  const pendencias = [!emitente.certificado && 'sem certificado', !emitente.ativo && 'inativo'].filter(Boolean).join(' e ');
+  // A credencial de um emitente inativo é recusada com 403 antes de chegar aqui, então a ficha lida é de um emitente ativo.
+  const semCertificado = !emitente.certificado;
 
   return {
     ok: true,
     titulo: `Emitente ${emitente.razao_social} vinculado`,
-    detalhe: `id e credencial guardados no banco local; nada foi criado na plataforma.${pendencias ? ` A ficha veio ${pendencias}: resolva no painel, ou pelos passos 2 e 3 com a credencial de gestão do .env.` : ' Certificado no cofre e emitente ativo: pode ir direto para a série, no passo 5.'}${foraDaUf}`,
+    detalhe: `id e credencial guardados no banco local; nada foi criado na plataforma.${semCertificado ? ' A ficha veio sem certificado: resolva no painel, ou pelo passo 2 com a credencial de gestão do .env.' : ' Certificado no cofre e emitente ativo: pode ir direto para a série, no passo 5.'}${foraDaUf}`,
     corpo: emitente,
   };
 }
@@ -185,14 +208,69 @@ async function cunharCredencial({ config, banco, cliente }: Contexto): Promise<R
 async function provisionarSerie({ form, banco, cliente }: Contexto): Promise<Resultado> {
   const operacional = credencialOperacional(banco);
   if (!operacional) return { ok: false, titulo: 'Série exige a credencial operacional', detalhe: 'A de gestão recebe 403 emitente-scope-required aqui.' };
-  const modelo = Number(form.get('modelo')) as 55 | 65;
+  const documento = form.get('documento') === 'dps' ? 'dps' : (Number(form.get('documento')) as 55 | 65);
   const serie = Number(form.get('serie'));
-  if (![55, 65].includes(modelo) || !Number.isInteger(serie) || serie < 0 || serie > 999) return { ok: false, titulo: 'Modelo 55 ou 65, série de 0 a 999' };
+  if (documento !== 'dps' && ![55, 65].includes(documento)) return { ok: false, titulo: 'Documento: modelo 55, modelo 65 ou DPS' };
+  // Cada documento tem a sua faixa, e a API a confere na provisão: 0–999 na NF-e e na NFC-e, 1–49999 na DPS (o canal de API na SEFIN).
+  const [minimo, maximo] = documento === 'dps' ? [1, 49999] : [0, 999];
+  if (!Number.isInteger(serie) || serie < minimo || serie > maximo) {
+    return { ok: false, titulo: documento === 'dps' ? 'Série de DPS: de 1 a 49999' : 'Série de NF-e e de NFC-e: de 0 a 999', detalhe: documento === 'dps' ? 'A série 70000, a do Emissor Web, por exemplo, está fora: a API a recusa na provisão, uma vez, em vez de a SEFIN recusar toda declaração emitida por ela.' : undefined };
+  }
   try {
-    const { corpo } = await cliente.provisionarSerie(operacional, modelo, serie);
-    return { ok: true, titulo: `Série ${serie} do modelo ${modelo} provisionada (managed)`, detalhe: 'A plataforma numera a partir de nextNumber. Na emissão você não manda numero.', corpo };
+    const { corpo } = await cliente.provisionarSerie(operacional, documento, serie);
+    const nome = documento === 'dps' ? 'da DPS (NFS-e)' : `do modelo ${documento}`;
+    return { ok: true, titulo: `Série ${serie} ${nome} provisionada (managed)`, detalhe: 'A plataforma numera a partir de nextNumber. Na emissão você não manda numero.', corpo };
   } catch (erro) {
     return resultadoDeErro('Série recusada', erro);
+  }
+}
+
+/**
+ * A IM do cadastro é a do CNC NFS-e, e vai no `prest.im` de toda DPS. Vazio limpa (o PATCH leva `null`, como o
+ * telefone). Editar o cadastro é escopo de integrador, então um emitente vinculado pela credencial operacional,
+ * fora da carteira de gestão do `.env`, acerta a IM no painel.
+ */
+async function gravarInscricaoMunicipal({ form, config, banco, cliente }: Contexto): Promise<Resultado> {
+  const { emitenteId } = banco.configuracao();
+  if (!emitenteId) return { ok: false, titulo: 'Cadastre o emitente antes da inscrição municipal' };
+  const valor = form.get('inscricao_municipal')?.trim() ?? '';
+  try {
+    const { corpo } = await cliente.editarEmitente(config.gestao, emitenteId, { inscricao_municipal: valor || null });
+    return valor
+      ? { ok: true, titulo: 'Inscrição municipal gravada', detalhe: 'A API tirou o espaço e a pontuação antes de gravar: a ficha mostra a que ela guardou.', corpo: { inscricao_municipal: corpo.inscricao_municipal } }
+      : { ok: true, titulo: 'Inscrição municipal removida', detalhe: 'Quem só emite NF-e não precisa dela. Para a DPS, a SEFIN recusa a IM ausente (E0116, que dispensa o MEI), e a obrigatoriedade depende do município.', corpo: { inscricao_municipal: corpo.inscricao_municipal } };
+  } catch (erro) {
+    return resultadoDeErro('Inscrição municipal recusada', erro);
+  }
+}
+
+/**
+ * Pergunta ao ADN o que o município publicou. A resposta diz se a parametrização veio, e não se o município
+ * aderiu ao Sistema Nacional; e a consulta não bloqueia emissão nenhuma. É leitura, e a rota aceita tanto a
+ * credencial de integrador quanto a de emitente. Enquanto a operacional não está guardada (antes do passo 4) só há a
+ * de gestão, e a de emitente, mesmo cunhada, é recusada com 403 até ele ser ativado. Com a operacional guardada, vai
+ * com ela, que alcança o emitente mesmo quando ele está fora da carteira da de gestão (um emitente vinculado pelo
+ * atalho), como a leitura da ficha.
+ */
+async function consultarConvenio({ form, config, banco, cliente }: Contexto): Promise<Resultado> {
+  const { emitenteId } = banco.configuracao();
+  if (!emitenteId) return { ok: false, titulo: 'Cadastre o emitente antes de consultar o convênio', detalhe: 'O certificado dele é o que abre o mTLS com o ADN, então a consulta pende de um emitente.' };
+  const codigo = form.get('codigo_municipio')?.trim() ?? '';
+  if (!/^\d{7}$/.test(codigo)) return { ok: false, titulo: 'Código do município: sete dígitos do IBGE, sem separador' };
+  try {
+    const { corpo } = await cliente.consultarConvenio(credencialOperacional(banco) ?? config.gestao, emitenteId, codigo);
+    const comum = 'O veredito diz se a parametrização veio, não se o município aderiu ao Sistema Nacional, e a consulta não bloqueia a emissão: a plataforma não recusa nenhuma por causa dela. Convênio inativo ou não parametrizado só aparece como rejeição de uma DPS real (E0038, E0039).';
+    const ausencia = corpo.veredito === 'sem-parametrizacao' ? ' Aqui o ADN respondeu em definitivo e o grupo de parâmetros não veio. Nenhum dos dois vereditos quer dizer "o município está fora".' : '';
+    return { ok: true, titulo: `Convênio consultado: ${corpo.veredito}`, detalhe: comum + ausencia, corpo };
+  } catch (erro) {
+    const r = resultadoDeErro('Consulta de convênio recusada', erro);
+    // Indisponibilidade não é negativa: o 503 é o ADN sem resposta, e o 504, a consulta que não concluiu na janela. Os dois
+    // pedem outra tentativa, e o retry se programa pelo status, nunca pela mensagem.
+    if (r && erro instanceof ErroApi && (erro.status === 503 || erro.status === 504)) {
+      const causa = erro.status === 503 ? 'o ADN não respondeu' : 'a consulta não concluiu dentro da janela';
+      return { ...r, detalhe: `${r.detalhe} Indisponibilidade não é negativa: ${causa}: repita; isto não é a resposta "o município não tem convênio". Repetir é inofensivo, porque a consulta não cria nada.` };
+    }
+    return r;
   }
 }
 
@@ -272,7 +350,7 @@ ${resultado(ultimo)}
 ${resultado(leituraFalhou)}
 
 ${passo(1, 'Cadastrar o emitente', 'POST /v1/emitentes', 'de gestão', Boolean(emitente), emitente
-  ? html`<p><b>${emitente.razao_social}</b> · CNPJ ${emitente.cnpj} · CRT ${emitente.crt} · ${emitente.municipio}/${emitente.uf} · ambiente <b>${emitente.ambiente}</b> · ${emitente.ativo ? 'ativo' : 'inativo (rascunho)'}</p><p>id <code>${emitente.id}</code></p>`
+  ? html`<p><b>${emitente.razao_social}</b> · CNPJ ${emitente.cnpj} · IM ${emitente.inscricao_municipal ?? 'não informada'} · CRT ${emitente.crt} · ${emitente.municipio}/${emitente.uf} · ambiente <b>${emitente.ambiente}</b> · ${emitente.ativo ? 'ativo' : 'inativo (rascunho)'}</p><p>documentos habilitados: ${emitente.tipos_documento.length ? emitente.tipos_documento.join(', ') : 'nenhum (sem série ativa no ambiente atual)'} · id <code>${emitente.id}</code></p>`
   : html`${formularioVinculo()}${formularioCadastro()}`)}
 
 ${passo(2, 'Subir o certificado A1', 'PUT /v1/emitentes/{id}/certificado', 'de gestão', temCert, emitente
@@ -295,22 +373,38 @@ ${passo(4, 'Cunhar a credencial operacional', 'POST /v1/credenciais  { "descrica
     ? html`<p><code>${operacional.clientId}</code> guardada no banco local. É ela que emite.</p>`
     : html`<p>Com <code>emitente_id</code> no corpo, a API cunha uma credencial de escopo de <b>emitente</b>. O <code>secret</code> vem uma única vez; a aplicação o guarda na hora.</p><form method="post" action="/emitente/credencial"><button>Cunhar e guardar</button></form>`)}
 
-${passo(5, 'Provisionar séries', 'POST /v1/series  { "modelo", "serie", "mode": "managed" }', 'operacional', series.length > 0, !operacional
+${passo(5, 'Provisionar séries', 'POST /v1/series  { "modelo" ou "tipoDocumento", "serie", "mode": "managed" }', 'operacional', series.length > 0, !operacional
   ? bloqueado('cunhe a credencial operacional; a de gestão recebe 403 emitente-scope-required')
   : html`<p>A série é <b>por ambiente</b>: homologação e produção numeram separado, e a promoção não cria a de produção: convém provisioná-la antes de promover o emitente. Sem <code>ambiente</code> no corpo, a série nasce no ambiente atual do emitente${ambienteDasSeries ? html`, e a lista abaixo é a de <b>${ambienteDasSeries}</b>` : vazio}.</p>
-${series.length ? html`<table><tr><th>Ambiente</th><th>Modelo</th><th>Série</th><th>Modo</th><th>Próximo número</th><th>Ativa</th></tr>${series.map((s) => html`<tr><td>${s.ambiente}</td><td>${s.modelo}</td><td>${s.serie}</td><td>${s.mode}</td><td>${s.nextNumber ?? '-'}</td><td>${s.active ? 'sim' : 'não'}</td></tr>`)}</table>` : bruto('<p>Nenhuma série ainda. Sem série no ambiente atual, a emissão responde 404 series-not-provisioned.</p>')}
-<form method="post" action="/emitente/serie"><label>Modelo <select name="modelo"><option value="55">55 · NF-e</option><option value="65">65 · NFC-e</option></select></label><label>Série <input name="serie" value="1" size="4"></label><button>Provisionar (managed)</button></form>`)}
+<p>E é <b>por documento</b>: a série 1 de NF-e e a série 1 de DPS (a declaração da NFS-e) são duas, cada uma com o seu próximo número. A NF-e e a NFC-e se pedem pelo <code>modelo</code>, na faixa de 0 a 999; a DPS não tem modelo, se pede só pelo <code>tipoDocumento</code>, e a faixa dela é de 1 a 49999.</p>
+${series.length ? html`<table><tr><th>Ambiente</th><th>Documento</th><th>Modelo</th><th>Série</th><th>Modo</th><th>Próximo número</th><th>Ativa</th></tr>${series.map((s) => html`<tr><td>${s.ambiente}</td><td>${s.tipoDocumento}</td><td>${s.modelo ?? '-'}</td><td>${s.serie}</td><td>${s.mode}</td><td>${s.nextNumber ?? '-'}</td><td>${s.active ? 'sim' : 'não'}</td></tr>`)}</table>` : bruto('<p>Nenhuma série ainda. Sem série no ambiente atual, a emissão responde 404 series-not-provisioned.</p>')}
+<form method="post" action="/emitente/serie"><label>Documento <select name="documento"><option value="55">55 · NF-e</option><option value="65">65 · NFC-e</option><option value="dps">dps · NFS-e (DPS)</option></select></label><label>Série <input name="serie" value="1" size="4"></label><button>Provisionar (managed)</button></form>`)}
 
 ${passo(6, 'Webhook (opcional)', 'PUT /v1/emitentes/{id}/webhook  { "url", "ativo": true }', 'operacional', Boolean(emitente?.webhook), !operacional
   ? bloqueado('cunhe a credencial operacional')
   : html`${emitente?.webhook ? html`<p>Configurado: <code>${emitente.webhook.url}</code> (${emitente.webhook.ativo ? 'ativo' : 'pausado'}) · segredo ${cfg.webhookSecret ? 'guardado no banco local' : 'não está no banco local: rotacione no painel se precisar dele'}</p>` : vazio}
 <p>A API só aceita HTTPS num host público. Para receber na sua máquina, exponha a porta com um túnel e use a URL pública dele. O feed de eventos funciona sem webhook; ele é a fonte de verdade, o webhook é o aviso.</p>
-<form method="post" action="/emitente/webhook"><label>URL <input name="url" placeholder="https://seu-tunel.exemplo.com/webhook" size="50" value="${emitente?.webhook?.url ?? ''}"></label><button>${emitente?.webhook ? 'Atualizar' : 'Criar'} webhook</button></form>`)}`;
+<form method="post" action="/emitente/webhook"><label>URL <input name="url" placeholder="https://seu-tunel.exemplo.com/webhook" size="50" value="${emitente?.webhook?.url ?? ''}"></label><button>${emitente?.webhook ? 'Atualizar' : 'Criar'} webhook</button></form>`)}
+
+<h1>NFS-e Padrão Nacional: o que ela pede a mais</h1>
+<p>A ordem da NFS-e dentro dos passos acima: a inscrição municipal entra no cadastro (passo 1) ou aqui, depois; o convênio vem entre o certificado (passo 2) e a ativação (passo 3), e é opcional; e a série de DPS é o passo 5, escolhendo <b>dps</b> em Documento. A emissão vem depois, na tela Nova NFS-e.</p>
+
+${passo('A', 'Inscrição municipal', 'PATCH /v1/emitentes/{id}  { "inscricao_municipal" }', 'de gestão', Boolean(emitente?.inscricao_municipal), !emitente
+  ? bloqueado('cadastre o emitente')
+  : html`<p>A IM do cadastro vai no <code>prest.im</code> de toda DPS, e a que vale é a do <b>CNC NFS-e</b>, que o Emissor Nacional mostra como "Indicador Municipal": pode não ser a do cartão nem a do alvará. A SEFIN recusa a DPS com a IM ausente ou errada (E0116, que dispensa o MEI) e com a IM que o CNC não registra para o CNPJ no município (E0120). Se o município exige a IM ou a proíbe depende dele, e nenhuma consulta de convênio responde isso. Quem só emite NF-e não precisa dela.</p>
+<form method="post" action="/emitente/inscricao-municipal"><label>Inscrição municipal <input name="inscricao_municipal" value="${emitente.inscricao_municipal ?? ''}"></label><button>${emitente.inscricao_municipal ? 'Atualizar' : 'Gravar'} inscrição municipal</button></form>
+<p>Vazio limpa a IM. A API tira o espaço e a pontuação antes de gravar, e a ficha acima mostra a que ela guardou.</p>`)}
+
+${passo('B', 'Consultar o convênio do município (opcional)', 'POST /v1/emitentes/{id}/consultas-convenio  { "codigoMunicipio" }', 'de gestão', false, !emitente
+  ? bloqueado('cadastre o emitente')
+  : html`<p>Pergunta ao Ambiente de Dados Nacional (ADN) que parâmetros de convênio o município publicou. É por código de município, e qualquer um serve, não só o do emitente; a resposta vem no corpo, sem comando a acompanhar. O certificado do emitente abre o mTLS com o ADN, e sem ele a consulta é recusada com 422. Pode ser feita antes da ativação, porque antes do passo 4 só existe a credencial de gestão, e a do emitente é recusada com 403 até ele ser ativado; com a operacional já guardada, vai com ela.</p>
+<p><b>Não bloqueia a emissão</b>, e o veredito não diz se o município aderiu ao Sistema Nacional: diz se a parametrização veio.</p>
+<form method="post" action="/emitente/convenio"><label>Código do município (IBGE, 7 dígitos) <input name="codigo_municipio" placeholder="4106902" size="9" maxlength="7" value="${cfg.codMunicipio ?? ''}"></label><button>Consultar convênio</button></form>`)}`;
 
   return { html: pagina('Emitente', '/emitente', corpo, chamadas) };
 }
 
-function passo(n: number, titulo: string, rota: string, escopo: string, feito: boolean, conteudo: Html): Html {
+function passo(n: number | string, titulo: string, rota: string, escopo: string, feito: boolean, conteudo: Html): Html {
   return html`<section class="${feito ? 'ok' : 'pendente'}"><h2>${n}. ${titulo} ${feito ? '✓' : ''}</h2><p><span class="rota">${rota}</span> · credencial <b>${escopo}</b></p>${conteudo}</section>`;
 }
 
@@ -331,12 +425,13 @@ function formularioVinculo(): Html {
 function formularioCadastro(): Html {
   const campo = (nome: string, rotulo: string, extra = '') => html`<label>${rotulo}<br><input name="${nome}" ${bruto(extra)}></label>`;
   return html`<h3>Ou cadastrar um emitente novo</h3>
-<p>Só os campos obrigatórios do <span class="rota">POST /v1/emitentes</span>, mais fantasia e telefone. O ambiente vai fixo em <b>homologacao</b>.</p>
+<p>Só os campos obrigatórios do <span class="rota">POST /v1/emitentes</span>, mais fantasia, telefone e a inscrição municipal, que é a do CNC NFS-e (o "Indicador Municipal" do Emissor Nacional) e fica em branco para quem só emite NF-e. O ambiente vai fixo em <b>homologacao</b>.</p>
 <form method="post" action="/emitente/cadastrar"><div class="grid">
-${campo('cnpj', 'CNPJ (14 dígitos)', 'required')}
+${campo('cnpj', 'CNPJ (14 caracteres, as 12 primeiras podem ser letras)', 'required')}
 ${campo('razao_social', 'Razão social', 'required')}
 ${campo('nome_fantasia', 'Nome fantasia')}
 ${campo('inscricao_estadual', 'Inscrição estadual (ou ISENTO)', 'value="ISENTO"')}
+${campo('inscricao_municipal', 'Inscrição municipal (NFS-e)')}
 <label>Regime (CRT)<br><select name="crt"><option value="1">1 · Simples Nacional</option><option value="2">2 · Simples, excesso de sublimite</option><option value="3">3 · Regime Normal</option><option value="4">4 · MEI</option></select></label>
 ${campo('logradouro', 'Logradouro', 'required')}
 ${campo('numero', 'Número', 'required')}

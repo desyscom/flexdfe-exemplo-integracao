@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { ateSeries, pedido55, subir, type Cenario } from './apoio.ts';
+import { ateSeries, ateSerieDps, pedido55, pedidoNfse, subir, type Cenario } from './apoio.ts';
 
 /** Faz o que a plataforma faz: serializa uma vez, assina os mesmos bytes que viajam. */
 async function entregar(c: Cenario, corpo: unknown, opcoes: { segredo?: string; assinatura?: string; bytes?: string } = {}) {
@@ -57,6 +57,36 @@ test('webhook válido aplica o evento pelo mesmo caminho do feed; inválido é d
     assert.match(tela.html, /<td><b>webhook<\/b><\/td>/);
     const feed = await c.post('/eventos/puxar');
     assert.match(feed.texto, /repetido: já aplicado, sem efeito/);
+    assert.equal(c.banco.listarEventos().length, 1);
+    assert.equal(c.banco.listarEventos()[0].origem, 'webhook');
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('o webhook leva as duas famílias: um nfse.emit assinado fecha a NFS-e pelo mesmo caminho do feed', async () => {
+  const c = await subir();
+  try {
+    await ateSerieDps(c);
+    c.api.modoEmissao = 'assincrono';
+    await c.post('/nova-nfse/emitir', pedidoNfse());
+    const [nfse] = c.banco.listarNfses();
+    const evento = c.api.concluirDps(nfse.commandId!, 'authorized');
+    const push = { id: nfse.commandId, type: 'nfse.emit', status: 'completed', outcome: 'authorized', seq: evento.seq };
+
+    assert.deepEqual(await entregar(c, push, { segredo: 'outro' }), { status: 401, texto: 'Assinatura inválida: descartado.' });
+    assert.equal(c.banco.lerNfse(nfse.id)!.status, 'pending', 'a assinatura inválida não muda nada');
+
+    const ok = await entregar(c, push);
+    assert.equal(ok.status, 200);
+    assert.match(ok.texto, new RegExp(`aplicado: NFS-e ${nfse.id} autorizada`));
+    const aplicada = c.banco.lerNfse(nfse.id)!;
+    assert.equal(aplicada.confirmadoPor, 'webhook');
+    assert.equal(aplicada.numeroNfse, 1);
+
+    // Repetida: aceita e sem efeito. O feed da NFS-e depois encontra o mesmo seq e não duplica.
+    assert.equal((await entregar(c, push)).texto, 'repetido: já aplicado, sem efeito');
+    assert.match((await c.post('/eventos/puxar-nfse')).texto, /repetido: já aplicado, sem efeito/);
     assert.equal(c.banco.listarEventos().length, 1);
     assert.equal(c.banco.listarEventos()[0].origem, 'webhook');
   } finally {

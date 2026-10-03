@@ -24,7 +24,7 @@ test('o ciclo completo: cadastro, certificado, ativação, credencial, série 55
     assert.equal(criacao.clientId, 'gestao');
     assert.deepEqual(
       { ...(criacao.corpo as Record<string, unknown>) },
-      { cnpj: '12345678000195', razao_social: 'Loja Exemplo Ltda', nome_fantasia: null, inscricao_estadual: 'ISENTO', crt: 1, ambiente: 'homologacao', logradouro: 'Rua das Flores', numero: '100', bairro: 'Centro', cod_municipio: '4314100', municipio: 'Parobé', uf: 'RS', cep: '95630000', telefone: null },
+      { cnpj: '12345678000195', razao_social: 'Loja Exemplo Ltda', nome_fantasia: null, inscricao_estadual: 'ISENTO', inscricao_municipal: null, crt: 1, ambiente: 'homologacao', logradouro: 'Rua das Flores', numero: '100', bairro: 'Centro', cod_municipio: '4314100', municipio: 'Parobé', uf: 'RS', cep: '95630000', telefone: null },
     );
 
     let tela = await c.get('/emitente');
@@ -50,8 +50,8 @@ test('o ciclo completo: cadastro, certificado, ativação, credencial, série 55
     assert.deepEqual(c.api.requisicoes.find((r) => r.caminho === '/v1/credenciais')!.corpo, { descricao: 'Exemplo de integração', emitente_id: id });
 
     // Série: daqui em diante as chamadas de escopo de emitente usam a credencial cunhada.
-    assert.match((await c.post('/emitente/serie', { modelo: '55', serie: '1' })).html, /Série 1 do modelo 55 provisionada/);
-    assert.match((await c.post('/emitente/serie', { modelo: '65', serie: '1' })).html, /Série 1 do modelo 65 provisionada/);
+    assert.match((await c.post('/emitente/serie', { documento: '55', serie: '1' })).html, /Série 1 do modelo 55 provisionada/);
+    assert.match((await c.post('/emitente/serie', { documento: '65', serie: '1' })).html, /Série 1 do modelo 65 provisionada/);
     for (const r of c.api.requisicoes.filter((r) => r.caminho === '/v1/series')) assert.equal(r.clientId, cunhada.clientId);
     // Sem `ambiente` no corpo: a série nasce no ambiente atual do emitente, e a representação diz qual.
     const provisao = c.api.requisicoes.find((r) => r.metodo === 'POST' && r.caminho === '/v1/series')!;
@@ -70,7 +70,9 @@ test('o ciclo completo: cadastro, certificado, ativação, credencial, série 55
     tela = await c.get('/emitente');
     for (const passo of ['1. Cadastrar o emitente ✓', '2. Subir o certificado A1 ✓', '3. Ativar ✓', '4. Cunhar a credencial operacional ✓', '5. Provisionar séries ✓', '6. Webhook (opcional) ✓'])
       assert.ok(tela.html.includes(passo), `faltou "${passo}"`);
-    assert.match(tela.html, /<td>homologacao<\/td><td>55<\/td><td>1<\/td><td>managed<\/td>/);
+    // A série é por documento: a tabela diz o `tipoDocumento` e, ao lado, o `modelo` que a NF-e e a NFC-e têm.
+    assert.match(tela.html, /<td>homologacao<\/td><td>nfe<\/td><td>55<\/td><td>1<\/td><td>managed<\/td>/);
+    assert.match(tela.html, /<td>homologacao<\/td><td>nfce<\/td><td>65<\/td><td>1<\/td><td>managed<\/td>/);
     assert.match(tela.html, /a lista abaixo é a de <b>homologacao<\/b>/);
     assert.match(tela.html, /tunel\.exemplo\.com\/outro/);
     // A página lista as rotas que consumiu.
@@ -103,9 +105,9 @@ test('a série é por ambiente: o emitente promovido não leva a de homologaçã
     assert.match(recusa.texto, /série modelo=55 serie=1 não provisionada no ambiente producao/);
 
     // A série 1 de produção é outra: nasce no ambiente atual e começa do 1, sem herdar o cursor de homologação.
-    assert.match((await c.post('/emitente/serie', { modelo: '55', serie: '1' })).html, /Série 1 do modelo 55 provisionada/);
+    assert.match((await c.post('/emitente/serie', { documento: '55', serie: '1' })).html, /Série 1 do modelo 55 provisionada/);
     tela = await c.get('/emitente');
-    assert.match(tela.html, /<td>producao<\/td><td>55<\/td><td>1<\/td><td>managed<\/td><td>1<\/td>/);
+    assert.match(tela.html, /<td>producao<\/td><td>nfe<\/td><td>55<\/td><td>1<\/td><td>managed<\/td><td>1<\/td>/);
     const producao = await c.post('/nova-nota/emitir', pedido55(c));
     assert.match(producao.html, /completed \/ authorized, número 1/);
     assert.deepEqual(c.api.series.map((s) => `${s.ambiente} ${s.modelo}/${s.serie} próximo ${s.nextNumber}`), ['homologacao 55/1 próximo 2', 'homologacao 65/1 próximo 1', 'producao 55/1 próximo 2']);
@@ -123,6 +125,23 @@ test('cadastro com CNPJ repetido mostra o problem+json com o type', async () => 
     assert.match(r.html, /Cadastro recusado: HTTP 409/);
     assert.match(r.html, /type = emitente-cnpj-already-exists/);
     assert.match(r.html, /Envelope application\/problem\+json/);
+  } finally {
+    await c.encerrar();
+  }
+});
+
+test('CNPJ alfanumérico: o cadastro mantém as letras, em maiúscula, e só a pontuação sai', async () => {
+  const c = await subir();
+  try {
+    // O rótulo do campo não promete só dígitos.
+    const formulario = await c.get('/emitente');
+    assert.match(formulario.texto, /CNPJ \(14 caracteres, as 12 primeiras podem ser letras\)/);
+
+    const r = await c.post('/emitente/cadastrar', { ...EMITENTE_VALIDO, cnpj: '12.abc.345/0001-88' });
+    assert.match(r.html, /Emitente cadastrado \(rascunho\)/);
+    const criacao = c.api.requisicoes.find((q) => q.metodo === 'POST' && q.caminho === '/v1/emitentes')!;
+    assert.equal((criacao.corpo as { cnpj: string }).cnpj, '12ABC345000188');
+    assert.match((await c.get('/emitente')).html, /CNPJ 12ABC345000188/);
   } finally {
     await c.encerrar();
   }
@@ -164,7 +183,7 @@ test('a ordem é imposta pela tela: série e webhook ficam bloqueados até a cre
     await cadastrar(c);
     const tela = await c.get('/emitente');
     assert.match(tela.html, /cunhe a credencial operacional; a de gestão recebe 403 emitente-scope-required/);
-    assert.match((await c.post('/emitente/serie', { modelo: '55', serie: '1' })).html, /Série exige a credencial operacional/);
+    assert.match((await c.post('/emitente/serie', { documento: '55', serie: '1' })).html, /Série exige a credencial operacional/);
     assert.match((await c.post('/emitente/webhook', { url: 'https://a.b/c' })).html, /Webhook vem depois da credencial operacional/);
     assert.equal(c.api.requisicoes.filter((r) => r.caminho === '/v1/series' || r.caminho.endsWith('/webhook')).length, 0);
   } finally {
@@ -176,8 +195,8 @@ test('série repetida é 409 series-already-exists', async () => {
   const c = await subir();
   try {
     await ateCredencialOperacional(c);
-    await c.post('/emitente/serie', { modelo: '55', serie: '3' });
-    const r = await c.post('/emitente/serie', { modelo: '55', serie: '3' });
+    await c.post('/emitente/serie', { documento: '55', serie: '3' });
+    const r = await c.post('/emitente/serie', { documento: '55', serie: '3' });
     assert.match(r.html, /type = series-already-exists/);
   } finally {
     await c.encerrar();
@@ -274,7 +293,7 @@ test('vincular um emitente já cadastrado descobre a ficha pela credencial opera
     const tela = await c.get('/emitente');
     for (const passo of ['1. Cadastrar o emitente ✓', '2. Subir o certificado A1 ✓', '3. Ativar ✓', '4. Cunhar a credencial operacional ✓'])
       assert.ok(tela.html.includes(passo), `faltou "${passo}"`);
-    assert.match((await c.post('/emitente/serie', { modelo: '55', serie: '7' })).html, /Série 7 do modelo 55 provisionada/);
+    assert.match((await c.post('/emitente/serie', { documento: '55', serie: '7' })).html, /Série 7 do modelo 55 provisionada/);
   } finally {
     await c.encerrar();
   }

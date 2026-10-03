@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ateSeries, EMITENTE_VALIDO, pedido55, subir } from './apoio.ts';
+import { ateSeries, EMITENTE_VALIDO, pedido55, pedidoNfse, subir } from './apoio.ts';
 import { carregarConfig } from '../src/config.ts';
 
 test('a raiz leva à Configuração', async () => {
@@ -92,6 +92,12 @@ test('recomeçar do zero apaga o banco local, semeia de novo e não chama a API'
     const id = await ateSeries(c);
     await c.post('/nova-nota/emitir', pedido55(c));
     assert.ok(c.banco.listarNotas().length > 0, 'a nota precisa existir antes do reset');
+    // A NFS-e também: a tabela, o cursor do feed dela e o município do cadastro são locais e vão embora juntos.
+    await c.post('/emitente/serie', { documento: 'dps', serie: '1' });
+    await c.post('/nova-nfse/emitir', pedidoNfse());
+    c.banco.gravarCursorFeedNfse(7);
+    assert.ok(c.banco.listarNfses().length > 0, 'a NFS-e precisa existir antes do reset');
+    assert.equal(c.banco.configuracao().codMunicipio, '4314100');
     c.banco.criarDestinatario({ documento: '11444777000161', nome: 'OUTRO', logradouro: 'R', numero: '1', bairro: 'B', codMunicipio: '3550308', municipio: 'SAO PAULO', uf: 'SP', cep: '01310000' });
     const antes = c.api.requisicoes.length;
 
@@ -103,9 +109,10 @@ test('recomeçar do zero apaga o banco local, semeia de novo e não chama a API'
     const cfg = c.banco.configuracao();
     assert.deepEqual(
       { ...cfg },
-      { emitenteId: null, credencialClientId: null, credencialSecret: null, webhookSecret: null, cursorFeed: 0 },
+      { emitenteId: null, credencialClientId: null, credencialSecret: null, webhookSecret: null, cursorFeed: 0, cursorFeedNfse: 0, codMunicipio: null },
     );
     assert.deepEqual(c.banco.listarNotas(), []);
+    assert.deepEqual(c.banco.listarNfses(), []);
     // Semeado de novo, como numa instalação nova: três produtos e um destinatário só.
     assert.equal(c.banco.listarProdutos().length, 3);
     assert.deepEqual(c.banco.listarDestinatarios().map((d) => d.semente), [1]);
